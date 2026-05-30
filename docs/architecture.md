@@ -13,6 +13,11 @@ flowchart LR
     Cache[(Elastic Cache<br/>Valkey)]
     Database[(PostgreSQL)]
     Queue[Amazon SQS]
+    Prometheus[Prometheus]
+    Loki[Loki]
+    Promtail[Promtail]
+    Grafana[Grafana]
+    Logs[(API access logs)]
 
     Users --> Redirect
     Users --> Management
@@ -24,6 +29,15 @@ flowchart LR
     Management -.-> Queue
     Worker -.-> Queue
     Cache <--> Database
+    Prometheus -. scrape .-> Redirect
+    Prometheus -. scrape .-> Management
+    Prometheus -. scrape .-> Worker
+    Redirect --> Logs
+    Management --> Logs
+    Promtail -. tail .-> Logs
+    Promtail --> Loki
+    Grafana --> Prometheus
+    Grafana --> Loki
 ```
 
 ## Gradle 모듈
@@ -35,7 +49,15 @@ flowchart LR
 - `modules:shortlink-persistence`: PostgreSQL/JPA 저장소 어댑터와 Flyway migration.
 - `modules:shortlink-cache`: Valkey/Redis 캐시 어댑터와 로컬 인메모리 캐시.
 - `modules:shortlink-messaging`: SQS 메시징 포트의 기본 로깅/No-op 어댑터.
-- `modules:common`: 공통 응답 모델.
+- `modules:common`: 공통 응답 모델과 JSON access log writer.
+
+## 관측성 흐름
+
+각 서버 앱은 Spring Boot Actuator와 Micrometer Prometheus registry를 통해 `/actuator/prometheus` endpoint를 노출한다. 로컬 Prometheus는 Management, Redirect, Worker 서버를 scrape하고, Grafana는 provisioning된 Prometheus datasource와 dashboard로 성능 지표를 시각화한다.
+
+Management Server와 Redirect Server는 API 요청 단위 access log를 JSON line으로 남긴다. Promtail은 `logs/` 아래 파일을 tailing해서 Loki로 전송하고, Grafana는 Loki datasource를 통해 상태값, 응답시간, URL, trace id를 조회한다.
+
+자세한 로컬 모니터링 구성은 [observability.md](/Users/eunsoojin/IdeaProjects/short-url/docs/observability.md)를 기준으로 한다.
 
 ## 의존 방향
 

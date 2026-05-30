@@ -29,6 +29,7 @@
 - 도메인 규칙이 컨트롤러나 영속성 코드로 새지 않았는가?
 - 짧은 코드 충돌, 만료, 잘못된 URL 같은 경계 조건을 테스트했는가?
 - 리다이렉트 성능에 영향을 주는 동기 작업을 추가하지 않았는가?
+- 성능 지표가 의미별로 분리되어 dashboard에서 오해 없이 읽히는가?
 - `/docs` 아래 개발 참고 문서를 갱신했는가?
 
 ## 기록
@@ -122,3 +123,57 @@
 - 수정: `TsidShortCodeGenerator`를 애플리케이션 계층의 `ShortCodeGenerator` 구현으로 두고, `ShortLinkCreator`가 저장 전에 code를 만든다.
 - 예방: code 생성 전략을 바꿀 때는 `ShortCode` 문자셋/길이, DB PK 길이, cache key 포맷, API 응답을 함께 확인한다.
 - 관련 파일: `modules/shortlink-core/src/main/kotlin/toy/two/shorturl/shortlink/application/TsidShortCodeGenerator.kt`, `modules/shortlink-core/src/main/kotlin/toy/two/shorturl/shortlink/config/ShortLinkCoreConfiguration.kt`
+
+## 2026-05-31 - Redirect 결과 지표와 cache 지표 분리
+
+- 상황: Grafana dashboard에 redirect 결과와 cache hit/miss를 한 metric 안의 outcome tag로 섞어 표현하려 했다.
+- 오판: 하나의 counter에 모든 이벤트를 넣으면 단순해 보이지만, `cache_hit`과 `not_found`가 같은 차원의 결과처럼 보여 운영자가 잘못 해석할 수 있다.
+- 원인: metric cardinality를 줄이는 것에만 집중해 지표 의미의 상호 배타성을 놓쳤다.
+- 수정: `short_url_redirect_cache_total{result}`와 `short_url_redirect_resolution_total{outcome}`으로 분리했다.
+- 예방: Prometheus metric을 만들 때 metric name, label, counter 증가 조건이 같은 의미 차원인지 먼저 점검한다.
+- 관련 파일: `apps/redirect-server/src/main/kotlin/toy/two/shorturl/redirect/RedirectMicrometerMetricsRecorder.kt`, `monitoring/grafana/dashboards/short-url-overview.json`
+
+## 2026-05-31 - Docker Prometheus가 로컬 JVM 앱을 scrape할 때 host.docker.internal 사용
+
+- 상황: Prometheus는 Docker container에서 실행되고 앱 서버는 호스트 JVM에서 실행된다.
+- 오판: Prometheus 설정에 `localhost:8080`을 넣으면 호스트 앱을 scrape할 수 있다고 보기 쉽다.
+- 원인: container 내부의 localhost는 container 자신을 가리킨다.
+- 수정: scrape target을 `host.docker.internal:8080`, `:8081`, `:8082`로 지정했다.
+- 예방: Docker container에서 호스트 프로세스로 접근하는 설정은 항상 네트워크 namespace를 기준으로 검증한다.
+- 관련 파일: `monitoring/prometheus/prometheus.yml`, `docs/observability.md`
+
+## 2026-05-31 - bootRun 기준 access log 상대 경로
+
+- 상황: API access log를 `logs/...` 상대 경로로 설정했더니 Promtail이 보는 레포 루트가 아니라 `apps/management-server/logs/...`에 파일이 생성됐다.
+- 오판: Gradle `bootRun` 실행 시 `user.dir`이 레포 루트일 것이라고 가정했다.
+- 원인: Spring Boot Gradle plugin의 `bootRun`은 앱 모듈 디렉터리를 작업 디렉터리로 사용한다.
+- 수정: 기본 access log 경로를 `../../logs/...`로 변경하고, 실행 위치가 다르면 `SHORT_URL_ACCESS_LOG_PATH`로 override할 수 있게 했다.
+- 예방: Docker bind mount가 읽는 파일 경로와 JVM이 쓰는 파일 경로는 실제 실행 방식으로 end-to-end 검증한다.
+- 관련 파일: `apps/management-server/src/main/resources/application.properties`, `apps/redirect-server/src/main/resources/application.properties`, `monitoring/promtail/promtail.yml`
+
+## 2026-05-31 - API 호출 단위 로그는 Prometheus metric이 아니라 Loki log로 분리
+
+- 상황: Grafana에서 상태값, 응답시간, URL, trace id가 보이는 API 호출 단위 화면이 필요했다.
+- 오판: Prometheus metric만 확장하면 요청 단위 상세 조회까지 해결된다고 보기 쉽다.
+- 원인: Prometheus는 집계/시계열에 강하고, 개별 요청 payload 성격의 고카디널리티 데이터에는 맞지 않는다.
+- 수정: Prometheus dashboard는 집계 지표로 유지하고, JSON access log는 Promtail과 Loki로 수집해 별도 `Short URL API Logs` dashboard에서 조회한다.
+- 예방: 관측성 요구사항을 metric, log, trace 중 어떤 신호로 풀지 먼저 나눈 뒤 도구를 붙인다.
+- 관련 파일: `monitoring/grafana/dashboards/short-url-api-logs.json`, `monitoring/loki/loki.yml`, `monitoring/promtail/promtail.yml`
+
+## 2026-05-31 - README 온보딩 문서는 실제 포트와 대시보드 URL 기준으로 작성
+
+- 상황: 신규 팀원이 처음 실행할 때 앱 포트, Docker Compose 서비스, Grafana dashboard URL, API 테스트 파일을 한 곳에서 확인해야 했다.
+- 오판: 세부 문서가 `/docs` 아래에 있으면 README는 짧아도 충분하다고 보기 쉽다.
+- 원인: 처음 합류한 팀원은 문서 구조 자체를 아직 모르므로 실행 순서와 접속 URL을 찾는 비용이 크다.
+- 수정: README에 Quick Start, 개발 도구 URL, 아키텍처, 테스트, 관측성, 참고 문서 링크를 정리했다.
+- 예방: 인프라 포트나 dashboard UID를 바꿀 때 README와 `/docs`의 URL 표를 함께 갱신한다.
+- 관련 파일: `README.md`, `docker-compose.yml`, `monitoring/grafana/dashboards/short-url-api-logs.json`
+
+## 2026-05-31 - k6 컨테이너는 localhost 대신 host.docker.internal 사용
+
+- 상황: k6를 Docker Compose service로 실행해 호스트에서 떠 있는 Spring Boot 앱을 부하 테스트해야 했다.
+- 오판: k6 script의 기본 target을 `localhost:8080`으로 두면 앱에 닿을 것이라고 보기 쉽다.
+- 원인: Docker container 안의 localhost는 container 자신을 가리킨다.
+- 수정: k6 기본 `MANAGEMENT_BASE_URL`, `REDIRECT_BASE_URL`을 `host.docker.internal`로 설정하고, Linux 호환을 위해 compose에 `host-gateway` extra host를 추가했다.
+- 예방: Docker container 기반 테스트 도구가 호스트 앱을 호출할 때는 network namespace 기준으로 target URL을 확인한다.
+- 관련 파일: `docker-compose.yml`, `load-tests/k6/short-url-smoke.js`, `load-tests/k6/redirect-load.js`, `load-tests/k6/mixed-load.js`, `docs/load-testing.md`

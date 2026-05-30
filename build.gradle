@@ -75,6 +75,12 @@ project(':modules:shortlink-core') {
     }
 }
 
+project(':modules:common') {
+    dependencies {
+        implementation 'tools.jackson.core:jackson-databind'
+    }
+}
+
 project(':modules:shortlink-persistence') {
     apply plugin: 'org.jetbrains.kotlin.plugin.jpa'
 
@@ -120,8 +126,10 @@ configure([
     dependencies {
         implementation 'org.jetbrains.kotlin:kotlin-reflect'
         implementation 'tools.jackson.module:jackson-module-kotlin'
+        implementation 'org.springframework.boot:spring-boot-starter-actuator'
         implementation project(':modules:common')
         implementation project(':modules:shortlink-core')
+        runtimeOnly 'io.micrometer:micrometer-registry-prometheus'
         testImplementation 'org.springframework.boot:spring-boot-starter-test'
     }
 }
@@ -154,5 +162,6 @@ project(':apps:worker-server') {
     dependencies {
         implementation project(':modules:shortlink-messaging')
         implementation 'org.springframework.boot:spring-boot-starter'
+        implementation 'org.springframework.boot:spring-boot-starter-webmvc'
     }
 }

@@ -16,6 +16,10 @@
 - Spring Data Redis: Valkey/Redis protocol cache
 - Flyway: database schema migration
 - tsid-creator: time-sorted short code generation
+- Spring Boot Actuator: health, metrics, prometheus endpoint
+- Micrometer Prometheus registry: Prometheus metrics export
+- Loki + Promtail: API access log collection
+- k6: load testing
 
 ## Infrastructure
 
@@ -29,6 +33,21 @@
 - Amazon SQS
   - 현재는 포트와 기본 로깅/No-op 어댑터만 제공한다.
   - 실제 AWS SDK 연동은 별도 어댑터로 추가한다.
+- Prometheus
+  - Docker Compose에서 `short-url-prometheus`로 실행한다.
+  - 로컬 앱 서버의 `/actuator/prometheus` endpoint를 scrape한다.
+- Grafana
+  - Docker Compose에서 `short-url-grafana`로 실행한다.
+  - Prometheus/Loki datasource와 `Short URL Overview`, `Short URL API Logs` dashboard를 provisioning한다.
+- Loki
+  - Docker Compose에서 `short-url-loki`로 실행한다.
+  - API access log를 저장하고 LogQL 조회를 제공한다.
+- Promtail
+  - Docker Compose에서 `short-url-promtail`로 실행한다.
+  - 로컬 `logs/` 디렉터리의 JSON line access log를 tailing한다.
+- k6
+  - Docker Compose profile `load-test`의 ephemeral service로 실행한다.
+  - `load-tests/k6` 아래 smoke, redirect, mixed 부하 테스트 스크립트를 사용한다.
 
 ## Test
 
@@ -49,6 +68,9 @@
 - Database URL: `jdbc:postgresql://localhost:5432/short_url`
 - JPA DDL: `validate`
 - Flyway: enabled, `classpath:db/migration`
+- Prometheus: `http://localhost:9090`
+- Loki: `http://localhost:3100`
+- Grafana: `http://localhost:3000`, `admin/admin`
 
 로컬에서 PostgreSQL 없이 빠르게 테스트할 때는 `./gradlew test`를 사용한다. 서버 실행은 PostgreSQL 준비 후 진행한다.
 
@@ -137,3 +159,55 @@ DATABASE_URI = "postgresql://short_url:short_url@host.docker.internal:5432/short
 ```
 
 Codex 앱 또는 스레드를 재시작하면 `postgres` MCP 서버가 로드된다.
+
+## Local Monitoring
+
+로컬 성능 모니터링과 API 로그 조회는 Prometheus, Loki, Promtail, Grafana를 Docker Compose로 실행한다.
+
+```bash
+docker compose up -d prometheus loki promtail grafana
+```
+
+Prometheus scrape target:
+
+```text
+short-url-management: host.docker.internal:8080/actuator/prometheus
+short-url-redirect: host.docker.internal:8081/actuator/prometheus
+short-url-worker: host.docker.internal:8082/actuator/prometheus
+```
+
+Redirect Server custom metrics:
+
+```text
+short_url_redirect_cache_total{result="hit|miss"}
+short_url_redirect_resolution_total{outcome="found|not_found|gone"}
+```
+
+API access log files:
+
+```text
+logs/short-url-management-server/api-access.log
+logs/short-url-redirect-server/api-access.log
+```
+
+Promtail labels:
+
+```text
+log_type=api_access
+job=short-url-api-management
+job=short-url-api-redirect
+```
+
+자세한 대시보드와 운영 메모는 [observability.md](/Users/eunsoojin/IdeaProjects/short-url/docs/observability.md)를 참고한다.
+
+## Local Load Testing
+
+k6 부하 테스트는 Docker Compose service로 실행한다.
+
+```bash
+docker compose run --rm k6 run /scripts/short-url-smoke.js
+docker compose run --rm -e VUS=100 -e DURATION=5m -e SHORT_URL_COUNT=1000 k6 run /scripts/redirect-load.js
+docker compose run --rm -e VUS=50 -e DURATION=3m -e CREATE_RATIO=0.10 k6 run /scripts/mixed-load.js
+```
+
+자세한 시나리오와 threshold 기준은 [load-testing.md](/Users/eunsoojin/IdeaProjects/short-url/docs/load-testing.md)를 참고한다.

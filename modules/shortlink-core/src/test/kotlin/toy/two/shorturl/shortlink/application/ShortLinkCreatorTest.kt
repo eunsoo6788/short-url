@@ -3,6 +3,7 @@ package toy.two.shorturl.shortlink.application
 import org.junit.jupiter.api.Test
 import toy.two.shorturl.shortlink.application.port.RedirectCacheEntry
 import toy.two.shorturl.shortlink.application.port.RedirectEventPublisher
+import toy.two.shorturl.shortlink.application.port.RedirectMetricsRecorder
 import toy.two.shorturl.shortlink.application.port.ShortCodeGenerator
 import toy.two.shorturl.shortlink.application.port.ShortLinkCache
 import toy.two.shorturl.shortlink.application.port.ShortLinkRepository
@@ -92,7 +93,8 @@ class RedirectResolverTest {
                 createdAt = clock.instant(),
             ),
         )
-        val resolver = RedirectResolver(repository, cache, publisher, clock, cachePolicy)
+        val metrics = CapturingRedirectMetricsRecorder()
+        val resolver = RedirectResolver(repository, cache, publisher, clock, cachePolicy, metrics)
 
         val resolution = resolver.resolve("miss")
 
@@ -103,6 +105,9 @@ class RedirectResolverTest {
             (cache.getRedirect(ShortCode.from("miss")) as RedirectCacheEntry.Found).originalUrl.value,
         )
         assertEquals(1, publisher.events.size)
+        assertEquals(1, metrics.cacheMiss)
+        assertEquals(1, metrics.found)
+        assertEquals(0, metrics.cacheHit)
     }
 
     @Test
@@ -111,13 +116,17 @@ class RedirectResolverTest {
         val cache = InMemoryTestShortLinkCache()
         val publisher = CapturingRedirectEventPublisher()
         cache.putFound(ShortCode.from("hit1"), OriginalUrl.from("https://example.com/hit"), Duration.ofMinutes(1))
-        val resolver = RedirectResolver(repository, cache, publisher, clock, cachePolicy)
+        val metrics = CapturingRedirectMetricsRecorder()
+        val resolver = RedirectResolver(repository, cache, publisher, clock, cachePolicy, metrics)
 
         val resolution = resolver.resolve("hit1")
 
         assertEquals("https://example.com/hit", resolution.originalUrl)
         assertEquals(true, resolution.cacheHit)
         assertEquals(1, publisher.events.size)
+        assertEquals(1, metrics.cacheHit)
+        assertEquals(1, metrics.found)
+        assertEquals(0, metrics.cacheMiss)
     }
 
     @Test
@@ -125,7 +134,8 @@ class RedirectResolverTest {
         val repository = InMemoryShortLinkRepository()
         val cache = InMemoryTestShortLinkCache()
         val publisher = CapturingRedirectEventPublisher()
-        val resolver = RedirectResolver(repository, cache, publisher, clock, cachePolicy)
+        val metrics = CapturingRedirectMetricsRecorder()
+        val resolver = RedirectResolver(repository, cache, publisher, clock, cachePolicy, metrics)
 
         assertFailsWith<ShortLinkNotFoundException> {
             resolver.resolve("none")
@@ -138,6 +148,9 @@ class RedirectResolverTest {
         assertEquals(1, repository.findByCodeCount)
         assertEquals(Duration.ofSeconds(30), cache.lastTtl)
         assertEquals(0, publisher.events.size)
+        assertEquals(1, metrics.cacheMiss)
+        assertEquals(1, metrics.cacheHit)
+        assertEquals(2, metrics.notFound)
     }
 
     @Test
@@ -153,7 +166,8 @@ class RedirectResolverTest {
                 expiresAt = clock.instant().minus(Duration.ofDays(1)),
             ),
         )
-        val resolver = RedirectResolver(repository, cache, publisher, clock, cachePolicy)
+        val metrics = CapturingRedirectMetricsRecorder()
+        val resolver = RedirectResolver(repository, cache, publisher, clock, cachePolicy, metrics)
 
         assertFailsWith<ExpiredShortLinkException> {
             resolver.resolve("gone")
@@ -165,6 +179,9 @@ class RedirectResolverTest {
         assertEquals(RedirectCacheEntry.Gone, cache.getRedirect(ShortCode.from("gone")))
         assertEquals(1, repository.findByCodeCount)
         assertEquals(Duration.ofMinutes(1), cache.lastTtl)
+        assertEquals(1, metrics.cacheMiss)
+        assertEquals(1, metrics.cacheHit)
+        assertEquals(2, metrics.gone)
     }
 
     @Test
@@ -256,5 +273,33 @@ private class CapturingRedirectEventPublisher : RedirectEventPublisher {
 
     override fun publish(event: RedirectRecordedEvent) {
         events += event
+    }
+}
+
+private class CapturingRedirectMetricsRecorder : RedirectMetricsRecorder {
+    var cacheHit = 0
+    var cacheMiss = 0
+    var found = 0
+    var notFound = 0
+    var gone = 0
+
+    override fun recordCacheHit() {
+        cacheHit += 1
+    }
+
+    override fun recordCacheMiss() {
+        cacheMiss += 1
+    }
+
+    override fun recordFound() {
+        found += 1
+    }
+
+    override fun recordNotFound() {
+        notFound += 1
+    }
+
+    override fun recordGone() {
+        gone += 1
     }
 }

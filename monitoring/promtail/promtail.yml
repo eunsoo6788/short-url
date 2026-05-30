@@ -1,0 +1,30 @@
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+
+positions:
+  filename: /tmp/positions.yml
+
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+
+scrape_configs:
+  - job_name: short-url-management-api-access
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: short-url-api-management
+          application: short-url-management-server
+          log_type: api_access
+          __path__: /var/log/short-url/short-url-management-server/api-access.log
+
+  - job_name: short-url-redirect-api-access
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: short-url-api-redirect
+          application: short-url-redirect-server
+          log_type: api_access
+          __path__: /var/log/short-url/short-url-redirect-server/api-access.log

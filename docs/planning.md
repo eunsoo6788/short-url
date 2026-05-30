@@ -27,6 +27,18 @@
 - Database
   - Flyway 기반 `short_links` 테이블 migration
   - Hibernate DDL `validate` 적용
+- Observability
+  - Actuator `/actuator/prometheus` endpoint 노출
+  - Prometheus scrape 설정
+  - Loki/Promtail 기반 API access log 수집
+  - Grafana datasource/dashboard 자동 provisioning
+  - redirect cache hit/miss와 resolution outcome 지표 수집
+  - API 상태 코드, URL, 응답시간, trace id 로그 조회
+- Load Testing
+  - k6 smoke test
+  - redirect read path 부하 테스트
+  - 생성/리다이렉트 mixed 부하 테스트
+  - VU, duration, 생성 개수, 생성 비율 환경변수화
 
 ## 제외한 범위
 
@@ -35,6 +47,8 @@
 - 클릭 통계 저장 모델
 - 관리자 UI
 - 운영용 캐시 무효화 정책
+- 운영용 Grafana 인증/권한/알림 정책
+- 운영용 로그 마스킹/보존/파기 정책
 
 ## 다음 단계 후보
 
@@ -43,3 +57,4 @@
 - URL 비활성화/삭제 API와 캐시 무효화 정책 추가
 - custom alias 예약어 정책 추가
 - multi-node cache stampede 완화가 필요해지면 Valkey 기반 distributed lock 또는 request coalescing 전용 계층 추가
+- Grafana alert rule, SLO dashboard, 부하 테스트 리포트 추가

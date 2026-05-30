@@ -1,0 +1,11 @@
+apiVersion: 1
+
+providers:
+  - name: Short URL Dashboards
+    orgId: 1
+    folder: Short URL
+    type: file
+    disableDeletion: false
+    editable: true
+    options:
+      path: /var/lib/grafana/dashboards

@@ -31,6 +31,80 @@ services:
       retries: 5
       start_period: 5s
 
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    container_name: short-url-prometheus
+    ports:
+      - "9090:9090"
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--web.console.libraries=/usr/share/prometheus/console_libraries"
+      - "--web.console.templates=/usr/share/prometheus/consoles"
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - short-url-prometheus-data:/prometheus
+
+  loki:
+    image: grafana/loki:2.9.8
+    container_name: short-url-loki
+    ports:
+      - "3100:3100"
+    command:
+      - "-config.file=/etc/loki/loki.yml"
+    volumes:
+      - ./monitoring/loki/loki.yml:/etc/loki/loki.yml:ro
+      - short-url-loki-data:/loki
+
+  promtail:
+    image: grafana/promtail:2.9.8
+    container_name: short-url-promtail
+    command:
+      - "-config.file=/etc/promtail/promtail.yml"
+    volumes:
+      - ./monitoring/promtail/promtail.yml:/etc/promtail/promtail.yml:ro
+      - ./logs:/var/log/short-url:ro
+    depends_on:
+      - loki
+
+  grafana:
+    image: grafana/grafana:11.3.1
+    container_name: short-url-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: false
+    volumes:
+      - short-url-grafana-data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./monitoring/grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      - prometheus
+      - loki
+
+  k6:
+    image: grafana/k6:0.49.0
+    profiles:
+      - load-test
+    entrypoint:
+      - k6
+    environment:
+      MANAGEMENT_BASE_URL: http://host.docker.internal:8080
+      REDIRECT_BASE_URL: http://host.docker.internal:8081
+      VUS: 20
+      DURATION: 1m
+      SHORT_URL_COUNT: 100
+    volumes:
+      - ./load-tests/k6:/scripts:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
 volumes:
   short-url-postgres-data:
   short-url-valkey-data:
+  short-url-prometheus-data:
+  short-url-loki-data:
+  short-url-grafana-data:

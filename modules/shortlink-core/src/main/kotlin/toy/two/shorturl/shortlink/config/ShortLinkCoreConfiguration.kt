@@ -1,6 +1,7 @@
 package toy.two.shorturl.shortlink.config
 
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean
+import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean
 import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
@@ -11,6 +12,8 @@ import toy.two.shorturl.shortlink.application.ShortLinkCreator
 import toy.two.shorturl.shortlink.application.ShortLinkReader
 import toy.two.shorturl.shortlink.application.TsidShortCodeGenerator
 import toy.two.shorturl.shortlink.application.port.RedirectEventPublisher
+import toy.two.shorturl.shortlink.application.port.NoOpRedirectMetricsRecorder
+import toy.two.shorturl.shortlink.application.port.RedirectMetricsRecorder
 import toy.two.shorturl.shortlink.application.port.ShortCodeGenerator
 import toy.two.shorturl.shortlink.application.port.ShortLinkCache
 import toy.two.shorturl.shortlink.application.port.ShortLinkRepository
@@ -35,6 +38,10 @@ class ShortLinkCoreConfiguration {
     fun shortCodeGenerator(): ShortCodeGenerator = TsidShortCodeGenerator()
 
     @Bean
+    @ConditionalOnMissingBean(RedirectMetricsRecorder::class)
+    fun redirectMetricsRecorder(): RedirectMetricsRecorder = NoOpRedirectMetricsRecorder
+
+    @Bean
     @ConditionalOnBean(ShortLinkRepository::class)
     fun shortLinkCreator(
         repository: ShortLinkRepository,
@@ -55,7 +62,15 @@ class ShortLinkCoreConfiguration {
         eventPublisher: RedirectEventPublisher,
         clock: Clock,
         redirectCachePolicy: RedirectCachePolicy,
-    ): RedirectResolver = RedirectResolver(repository, cache, eventPublisher, clock, redirectCachePolicy)
+        redirectMetricsRecorder: RedirectMetricsRecorder,
+    ): RedirectResolver = RedirectResolver(
+        repository,
+        cache,
+        eventPublisher,
+        clock,
+        redirectCachePolicy,
+        redirectMetricsRecorder,
+    )
 
     @Bean
     fun redirectEventProcessor(): RedirectEventProcessor = RedirectEventProcessor()
