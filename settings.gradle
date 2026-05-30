@@ -1,1 +1,11 @@
 rootProject.name = 'short-url'
+
+include 'modules:common'
+include 'modules:shortlink-core'
+include 'modules:shortlink-persistence'
+include 'modules:shortlink-cache'
+include 'modules:shortlink-messaging'
+
+include 'apps:management-server'
+include 'apps:redirect-server'
+include 'apps:worker-server'

@@ -1,49 +1,151 @@
 plugins {
-    id 'org.jetbrains.kotlin.jvm' version '2.2.21'
-    id 'org.jetbrains.kotlin.plugin.spring' version '2.2.21'
-    id 'org.springframework.boot' version '4.0.6'
-    id 'io.spring.dependency-management' version '1.1.7'
-    id 'org.jetbrains.kotlin.plugin.jpa' version '2.2.21'
+    id 'org.jetbrains.kotlin.jvm' version '2.2.21' apply false
+    id 'org.jetbrains.kotlin.plugin.spring' version '2.2.21' apply false
+    id 'org.jetbrains.kotlin.plugin.jpa' version '2.2.21' apply false
+    id 'org.springframework.boot' version '4.0.6' apply false
+    id 'io.spring.dependency-management' version '1.1.7' apply false
 }
 
 group = 'toy.two'
 version = '0.0.1-SNAPSHOT'
 description = 'short-url'
 
-java {
-    toolchain {
-        languageVersion = JavaLanguageVersion.of(21)
+ext {
+    springBootVersion = '4.0.6'
+}
+
+allprojects {
+    repositories {
+        mavenCentral()
     }
 }
 
-repositories {
-    mavenCentral()
-}
+subprojects {
+    apply plugin: 'java-library'
+    apply plugin: 'org.jetbrains.kotlin.jvm'
+    apply plugin: 'org.jetbrains.kotlin.plugin.spring'
+    apply plugin: 'io.spring.dependency-management'
 
-dependencies {
-    implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
-    implementation 'org.springframework.boot:spring-boot-starter-webmvc'
-    implementation 'org.jetbrains.kotlin:kotlin-reflect'
-    implementation 'tools.jackson.module:jackson-module-kotlin'
-    runtimeOnly 'org.postgresql:postgresql'
-    testImplementation 'org.springframework.boot:spring-boot-starter-data-jpa-test'
-    testImplementation 'org.springframework.boot:spring-boot-starter-webmvc-test'
-    testImplementation 'org.jetbrains.kotlin:kotlin-test-junit5'
-    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
-}
+    group = rootProject.group
+    version = rootProject.version
 
-kotlin {
-    compilerOptions {
-        freeCompilerArgs.addAll '-Xjsr305=strict', '-Xannotation-default-target=param-property'
+    dependencyManagement {
+        imports {
+            mavenBom "org.springframework.boot:spring-boot-dependencies:${rootProject.ext.springBootVersion}"
+        }
+    }
+
+    java {
+        toolchain {
+            languageVersion = JavaLanguageVersion.of(21)
+        }
+    }
+
+    dependencies {
+        testImplementation 'org.jetbrains.kotlin:kotlin-test-junit5'
+        testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+    }
+
+    kotlin {
+        compilerOptions {
+            freeCompilerArgs.addAll '-Xjsr305=strict', '-Xannotation-default-target=param-property'
+        }
+    }
+
+    tasks.withType(Test).configureEach {
+        useJUnitPlatform()
     }
 }
 
-allOpen {
-    annotation 'jakarta.persistence.Entity'
-    annotation 'jakarta.persistence.MappedSuperclass'
-    annotation 'jakarta.persistence.Embeddable'
+configure([
+        project(':modules:shortlink-core'),
+        project(':modules:shortlink-cache'),
+        project(':modules:shortlink-messaging')
+]) {
+    dependencies {
+        implementation 'org.springframework.boot:spring-boot-autoconfigure'
+        implementation 'org.springframework:spring-context'
+    }
 }
 
-tasks.named('test') {
-    useJUnitPlatform()
+project(':modules:shortlink-core') {
+    dependencies {
+        api project(':modules:common')
+    }
+}
+
+project(':modules:shortlink-persistence') {
+    apply plugin: 'org.jetbrains.kotlin.plugin.jpa'
+
+    dependencies {
+        api project(':modules:shortlink-core')
+        implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
+        runtimeOnly 'org.postgresql:postgresql'
+        testRuntimeOnly 'com.h2database:h2'
+    }
+
+    allOpen {
+        annotation 'jakarta.persistence.Entity'
+        annotation 'jakarta.persistence.MappedSuperclass'
+        annotation 'jakarta.persistence.Embeddable'
+    }
+}
+
+project(':modules:shortlink-cache') {
+    dependencies {
+        api project(':modules:shortlink-core')
+        implementation 'org.springframework.boot:spring-boot-starter-data-redis'
+    }
+}
+
+project(':modules:shortlink-messaging') {
+    dependencies {
+        api project(':modules:shortlink-core')
+        implementation 'org.springframework.boot:spring-boot-starter'
+    }
+}
+
+configure([
+        project(':apps:management-server'),
+        project(':apps:redirect-server'),
+        project(':apps:worker-server')
+]) {
+    apply plugin: 'org.springframework.boot'
+
+    dependencies {
+        implementation 'org.jetbrains.kotlin:kotlin-reflect'
+        implementation 'tools.jackson.module:jackson-module-kotlin'
+        implementation project(':modules:common')
+        implementation project(':modules:shortlink-core')
+        testImplementation 'org.springframework.boot:spring-boot-starter-test'
+    }
+}
+
+project(':apps:management-server') {
+    dependencies {
+        implementation project(':modules:shortlink-persistence')
+        implementation project(':modules:shortlink-cache')
+        implementation project(':modules:shortlink-messaging')
+        implementation 'org.springframework.boot:spring-boot-starter-webmvc'
+        testImplementation 'org.springframework.boot:spring-boot-starter-webmvc-test'
+        testRuntimeOnly 'com.h2database:h2'
+    }
+}
+
+project(':apps:redirect-server') {
+    dependencies {
+        implementation project(':modules:shortlink-persistence')
+        implementation project(':modules:shortlink-cache')
+        implementation project(':modules:shortlink-messaging')
+        implementation 'org.springframework.boot:spring-boot-starter-webflux'
+        testImplementation 'org.springframework.boot:spring-boot-starter-webflux-test'
+        testRuntimeOnly 'com.h2database:h2'
+    }
+}
+
+project(':apps:worker-server') {
+    dependencies {
+        implementation project(':modules:shortlink-messaging')
+        implementation 'org.springframework.boot:spring-boot-starter'
+    }
 }

@@ -1,0 +1,41 @@
+# Planning
+
+## 목표
+
+짧은 URL 생성, 조회, 리다이렉트, 이벤트 처리를 분리해 트래픽 성격에 맞는 서버를 독립적으로 운영할 수 있게 한다.
+
+## 1차 범위
+
+- Management Server
+  - Short URL 생성
+  - Short URL 단건 조회
+  - 최근 Short URL 목록 조회
+- Redirect Server
+  - 짧은 코드 기반 302 리다이렉트
+  - 캐시 우선 조회
+  - 캐시 미스 시 PostgreSQL fallback
+  - 리다이렉트 이벤트 발행 포트 호출
+- Worker Server
+  - 이벤트 polling worker 골격
+  - 이벤트 처리 유스케이스 골격
+- 공통 모듈
+  - 도메인 규칙
+  - 저장소, 캐시, 메시징 포트
+  - JPA/Redis/메시징 기본 어댑터
+
+## 제외한 범위
+
+- 실제 Amazon SQS SDK 연동
+- Flyway/Liquibase 마이그레이션
+- 인증/인가
+- 클릭 통계 저장 모델
+- 관리자 UI
+- 운영용 캐시 무효화 정책
+
+## 다음 단계 후보
+
+- SQS 어댑터 구현과 LocalStack 테스트 추가
+- 클릭 이벤트 저장소와 통계 API 추가
+- Flyway 기반 `short_links` 테이블 마이그레이션 추가
+- URL 비활성화/삭제 API와 캐시 무효화 정책 추가
+- custom alias 예약어 정책 추가
