@@ -17,5 +17,20 @@ services:
       retries: 5
       start_period: 10s
 
+  valkey:
+    image: valkey/valkey:8-alpine
+    container_name: short-url-valkey
+    ports:
+      - "6379:6379"
+    volumes:
+      - short-url-valkey-data:/data
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
 volumes:
   short-url-postgres-data:
+  short-url-valkey-data:

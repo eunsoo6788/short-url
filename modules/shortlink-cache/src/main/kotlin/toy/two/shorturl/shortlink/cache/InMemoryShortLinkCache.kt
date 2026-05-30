@@ -1,6 +1,7 @@
 package toy.two.shorturl.shortlink.cache
 
 import toy.two.shorturl.shortlink.application.port.ShortLinkCache
+import toy.two.shorturl.shortlink.application.port.RedirectCacheEntry
 import toy.two.shorturl.shortlink.domain.OriginalUrl
 import toy.two.shorturl.shortlink.domain.ShortCode
 import java.time.Clock
@@ -13,24 +14,49 @@ class InMemoryShortLinkCache(
 ) : ShortLinkCache {
     private val entries = ConcurrentHashMap<String, Entry>()
 
-    override fun getOriginalUrl(code: ShortCode): OriginalUrl? {
+    override fun getRedirect(code: ShortCode): RedirectCacheEntry? {
         val entry = entries[code.value] ?: return null
 
-        if (entry.expiresAt != null && !entry.expiresAt.isAfter(clock.instant())) {
+        if (!entry.expiresAt.isAfter(clock.instant())) {
             entries.remove(code.value)
             return null
         }
 
-        return OriginalUrl.from(entry.originalUrl)
+        return entry.toCacheEntry()
     }
 
-    override fun putOriginalUrl(code: ShortCode, originalUrl: OriginalUrl, ttl: Duration?) {
-        val expiresAt = ttl?.let { clock.instant().plus(it) }
-        entries[code.value] = Entry(originalUrl.value, expiresAt)
+    override fun putFound(code: ShortCode, originalUrl: OriginalUrl, ttl: Duration) {
+        entries[code.value] = Entry(CacheValueType.FOUND, originalUrl.value, clock.instant().plus(ttl))
+    }
+
+    override fun putNotFound(code: ShortCode, ttl: Duration) {
+        entries[code.value] = Entry(CacheValueType.NOT_FOUND, null, clock.instant().plus(ttl))
+    }
+
+    override fun putGone(code: ShortCode, ttl: Duration) {
+        entries[code.value] = Entry(CacheValueType.GONE, null, clock.instant().plus(ttl))
+    }
+
+    override fun evict(code: ShortCode) {
+        entries.remove(code.value)
     }
 
     private data class Entry(
-        val originalUrl: String,
-        val expiresAt: Instant?,
-    )
+        val type: CacheValueType,
+        val originalUrl: String?,
+        val expiresAt: Instant,
+    ) {
+        fun toCacheEntry(): RedirectCacheEntry =
+            when (type) {
+                CacheValueType.FOUND -> RedirectCacheEntry.Found(OriginalUrl.from(requireNotNull(originalUrl)))
+                CacheValueType.NOT_FOUND -> RedirectCacheEntry.NotFound
+                CacheValueType.GONE -> RedirectCacheEntry.Gone
+            }
+    }
+
+    private enum class CacheValueType {
+        FOUND,
+        NOT_FOUND,
+        GONE,
+    }
 }

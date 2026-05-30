@@ -77,3 +77,48 @@
 - 수정: 공개 pull 가능한 `docker.io/acuvity/mcp-server-postgres:0.3.0` 이미지를 사용하고 `DATABASE_URI` 환경변수로 연결하도록 설정했다.
 - 예방: MCP 서버를 추가할 때는 `command`가 현재 Codex 실행 환경에서 실제로 존재하는지 먼저 확인한다.
 - 관련 파일: `/Users/eunsoojin/.codex/config.toml`, `docs/tech-stack.md`
+
+## 2026-05-31 - Valkey는 Redis 호환 설정으로 연결
+
+- 상황: Docker Compose에 로컬 Valkey 서버를 추가했다.
+- 오판: Valkey라는 이름 때문에 Spring 쪽 별도 클라이언트 설정이 필요하다고 착각할 수 있다.
+- 원인: Valkey는 Redis protocol 호환 서버이고, 현재 애플리케이션 캐시 어댑터는 Spring Data Redis 기반이다.
+- 수정: Compose는 `valkey/valkey:8-alpine`을 사용하고 `6379` 포트를 열었다. 앱은 `short-url.cache.redis.enabled=true`일 때 RedisTemplate 기반 어댑터로 연결한다.
+- 예방: 캐시 설정을 바꿀 때는 Compose 포트, Spring Data Redis 기본 포트, `short-url.cache.redis.enabled` 값을 함께 확인한다.
+- 관련 파일: `docker-compose.yml`, `modules/shortlink-cache/src/main/kotlin/toy/two/shorturl/shortlink/cache/ShortLinkCacheConfiguration.kt`, `docs/tech-stack.md`
+
+## 2026-05-31 - Spring Boot 4 Flyway 자동설정 모듈 누락
+
+- 상황: Flyway dependency와 migration SQL을 추가했지만 Management Server 기동 시 Hibernate `validate`가 먼저 실패했다.
+- 오판: `flyway-core`만 classpath에 있으면 Spring Boot 4에서도 자동설정이 같이 로드될 것이라고 봤다.
+- 원인: Spring Boot 4는 Flyway 자동설정이 `spring-boot-flyway` 모듈로 분리되어 있다.
+- 수정: Management Server와 Redirect Server에 `org.springframework.boot:spring-boot-flyway` 의존성을 추가했다.
+- 예방: Spring Boot 4에서 기술별 자동설정은 `spring-boot-*` 모듈이 필요한지 공식 auto-configuration 문서와 로컬 jar를 확인한다.
+- 관련 파일: `build.gradle`, `apps/management-server/src/main/resources/application.properties`, `apps/redirect-server/src/main/resources/application.properties`
+
+## 2026-05-31 - Redirect negative cache와 gone cache 분리
+
+- 상황: 기존 캐시는 원본 URL만 저장해서 없는 code와 만료 code의 반복 요청을 DB가 계속 맞을 수 있었다.
+- 오판: 정상 redirect URL만 캐시해도 충분하다고 보면 대용량 트래픽에서 무작위 code scan이나 만료 code 재요청이 DB 부하로 이어진다.
+- 원인: 캐시 엔트리가 `FOUND`만 표현했다.
+- 수정: `FOUND`, `NOT_FOUND`, `GONE` cache entry를 도입하고 각각 TTL을 분리했다.
+- 예방: read path cache를 설계할 때 성공 응답뿐 아니라 반복 실패 응답의 DB 부하도 같이 모델링한다.
+- 관련 파일: `modules/shortlink-core/src/main/kotlin/toy/two/shorturl/shortlink/application/port/ShortLinkCache.kt`, `modules/shortlink-core/src/main/kotlin/toy/two/shorturl/shortlink/application/RedirectResolver.kt`, `docs/cache-strategy.md`
+
+## 2026-05-31 - Valkey 장애 시 redirect fail-open
+
+- 상황: RedisTemplate 기반 캐시 호출 실패가 redirect 요청 실패로 전파될 수 있었다.
+- 오판: 캐시가 항상 정상이라는 가정은 redirect 서비스의 가용성을 낮춘다.
+- 원인: 캐시는 성능 최적화 계층인데, 실패 처리를 하지 않으면 핵심 DB fallback 경로보다 먼저 장애를 만든다.
+- 수정: Redis cache adapter에서 read 실패는 cache miss로 처리하고 write/evict 실패는 경고 로그만 남기게 했다.
+- 예방: redirect read path의 외부 의존성은 가능한 fail-open 또는 격리 전략을 먼저 검토한다.
+- 관련 파일: `modules/shortlink-cache/src/main/kotlin/toy/two/shorturl/shortlink/cache/RedisShortLinkCache.kt`, `docs/cache-strategy.md`
+
+## 2026-05-31 - Public short code는 JPA ID 자동생성에 맡기지 않기
+
+- 상황: short code 생성 전략을 랜덤 Base62에서 TSID 기반으로 바꿨다.
+- 오판: JPA/Hibernate ID generator로 생성하면 충분하다고 볼 수 있지만, short code는 API 응답과 cache key에 바로 필요한 public identifier다.
+- 원인: persistence concern과 도메인 public identifier 생성 책임이 섞일 수 있다.
+- 수정: `TsidShortCodeGenerator`를 애플리케이션 계층의 `ShortCodeGenerator` 구현으로 두고, `ShortLinkCreator`가 저장 전에 code를 만든다.
+- 예방: code 생성 전략을 바꿀 때는 `ShortCode` 문자셋/길이, DB PK 길이, cache key 포맷, API 응답을 함께 확인한다.
+- 관련 파일: `modules/shortlink-core/src/main/kotlin/toy/two/shorturl/shortlink/application/TsidShortCodeGenerator.kt`, `modules/shortlink-core/src/main/kotlin/toy/two/shorturl/shortlink/config/ShortLinkCoreConfiguration.kt`

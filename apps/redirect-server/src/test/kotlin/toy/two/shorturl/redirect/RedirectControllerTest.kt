@@ -4,6 +4,7 @@ import org.junit.jupiter.api.Test
 import org.springframework.http.HttpStatus
 import toy.two.shorturl.shortlink.application.RedirectRecordedEvent
 import toy.two.shorturl.shortlink.application.RedirectResolver
+import toy.two.shorturl.shortlink.application.port.RedirectCacheEntry
 import toy.two.shorturl.shortlink.application.port.RedirectEventPublisher
 import toy.two.shorturl.shortlink.application.port.ShortLinkCache
 import toy.two.shorturl.shortlink.application.port.ShortLinkRepository
@@ -62,12 +63,24 @@ private class InMemoryShortLinkRepository : ShortLinkRepository {
 }
 
 private class InMemoryTestShortLinkCache : ShortLinkCache {
-    private val store = mutableMapOf<String, OriginalUrl>()
+    private val store = mutableMapOf<String, RedirectCacheEntry>()
 
-    override fun getOriginalUrl(code: ShortCode): OriginalUrl? = store[code.value]
+    override fun getRedirect(code: ShortCode): RedirectCacheEntry? = store[code.value]
 
-    override fun putOriginalUrl(code: ShortCode, originalUrl: OriginalUrl, ttl: Duration?) {
-        store[code.value] = originalUrl
+    override fun putFound(code: ShortCode, originalUrl: OriginalUrl, ttl: Duration) {
+        store[code.value] = RedirectCacheEntry.Found(originalUrl)
+    }
+
+    override fun putNotFound(code: ShortCode, ttl: Duration) {
+        store[code.value] = RedirectCacheEntry.NotFound
+    }
+
+    override fun putGone(code: ShortCode, ttl: Duration) {
+        store[code.value] = RedirectCacheEntry.Gone
+    }
+
+    override fun evict(code: ShortCode) {
+        store.remove(code.value)
     }
 }
 

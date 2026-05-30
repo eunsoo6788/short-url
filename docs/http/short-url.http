@@ -1,0 +1,17 @@
+@managementHost = http://localhost:8080
+@redirectHost = http://localhost:8081
+
+### Create short URL
+# @name createShortUrl
+POST {{managementHost}}/api/v1/short-links
+Content-Type: application/json
+
+{
+  "originalUrl": "https://www.agoda.com/ko-kr/?site_id=1922887&tag=f7739694-dbb7-41bd-aa27-be7c942ce354&gad_source=1&gad_campaignid=21035050206&gbraid=0AAAAAD-GdVn0CTgQkQ6WpvJcoTtlBgWcO&device=c&network=g&adid=695788229412&rand=1297990038283867463&aud=kwd-6927948326&gclid=Cj0KCQjwlerQBhDMARIsAB16H-XBaTt6z8T4kVL1Df8WqV0qPDX886eKBI_0AvzkO_gqb5sRNMZY3w4aAthoEALw_wcB&pslc=1&ds=eDo9fwPCJoonUXR3"
+}
+
+
+### http://localhost:8081/0QHPTGT9W756F
+
+### Redirect with generated short code
+GET {{redirectHost}}/{{createShortUrl.response.body.code}}

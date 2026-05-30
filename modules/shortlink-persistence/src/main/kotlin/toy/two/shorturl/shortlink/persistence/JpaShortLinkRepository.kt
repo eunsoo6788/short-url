@@ -1,11 +1,13 @@
 package toy.two.shorturl.shortlink.persistence
 
+import org.springframework.dao.DataIntegrityViolationException
 import org.springframework.data.domain.PageRequest
 import org.springframework.stereotype.Repository
 import org.springframework.transaction.annotation.Transactional
 import toy.two.shorturl.shortlink.application.port.ShortLinkRepository
 import toy.two.shorturl.shortlink.domain.ShortCode
 import toy.two.shorturl.shortlink.domain.ShortLink
+import toy.two.shorturl.shortlink.domain.exception.ShortCodeAlreadyExistsException
 
 @Repository
 class JpaShortLinkRepository(
@@ -13,7 +15,11 @@ class JpaShortLinkRepository(
 ) : ShortLinkRepository {
     @Transactional
     override fun save(shortLink: ShortLink): ShortLink =
-        jpaRepository.save(ShortLinkJpaEntity.from(shortLink)).toDomain()
+        try {
+            jpaRepository.saveAndFlush(ShortLinkJpaEntity.from(shortLink)).toDomain()
+        } catch (_: DataIntegrityViolationException) {
+            throw ShortCodeAlreadyExistsException("이미 사용 중인 짧은 코드입니다: ${shortLink.code.value}")
+        }
 
     @Transactional(readOnly = true)
     override fun findByCode(code: ShortCode): ShortLink? =

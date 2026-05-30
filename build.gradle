@@ -71,6 +71,7 @@ configure([
 project(':modules:shortlink-core') {
     dependencies {
         api project(':modules:common')
+        implementation 'com.github.f4b6a3:tsid-creator:5.2.6'
     }
 }
 
@@ -80,7 +81,11 @@ project(':modules:shortlink-persistence') {
     dependencies {
         api project(':modules:shortlink-core')
         implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
+        implementation 'org.flywaydb:flyway-core'
+        implementation 'org.flywaydb:flyway-database-postgresql'
         runtimeOnly 'org.postgresql:postgresql'
+        testImplementation 'org.springframework.boot:spring-boot-starter-test'
+        testImplementation 'org.flywaydb:flyway-core'
         testRuntimeOnly 'com.h2database:h2'
     }
 
@@ -127,6 +132,7 @@ project(':apps:management-server') {
         implementation project(':modules:shortlink-cache')
         implementation project(':modules:shortlink-messaging')
         implementation 'org.springframework.boot:spring-boot-starter-webmvc'
+        implementation 'org.springframework.boot:spring-boot-flyway'
         testImplementation 'org.springframework.boot:spring-boot-starter-webmvc-test'
         testRuntimeOnly 'com.h2database:h2'
     }
@@ -138,6 +144,7 @@ project(':apps:redirect-server') {
         implementation project(':modules:shortlink-cache')
         implementation project(':modules:shortlink-messaging')
         implementation 'org.springframework.boot:spring-boot-starter-webflux'
+        implementation 'org.springframework.boot:spring-boot-flyway'
         testImplementation 'org.springframework.boot:spring-boot-starter-webflux-test'
         testRuntimeOnly 'com.h2database:h2'
     }

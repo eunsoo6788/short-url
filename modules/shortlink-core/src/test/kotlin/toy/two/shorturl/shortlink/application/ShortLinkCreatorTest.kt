@@ -1,6 +1,7 @@
 package toy.two.shorturl.shortlink.application
 
 import org.junit.jupiter.api.Test
+import toy.two.shorturl.shortlink.application.port.RedirectCacheEntry
 import toy.two.shorturl.shortlink.application.port.RedirectEventPublisher
 import toy.two.shorturl.shortlink.application.port.ShortCodeGenerator
 import toy.two.shorturl.shortlink.application.port.ShortLinkCache
@@ -8,14 +9,15 @@ import toy.two.shorturl.shortlink.application.port.ShortLinkRepository
 import toy.two.shorturl.shortlink.domain.OriginalUrl
 import toy.two.shorturl.shortlink.domain.ShortCode
 import toy.two.shorturl.shortlink.domain.ShortLink
+import toy.two.shorturl.shortlink.domain.exception.ExpiredShortLinkException
 import toy.two.shorturl.shortlink.domain.exception.ShortCodeAlreadyExistsException
+import toy.two.shorturl.shortlink.domain.exception.ShortLinkNotFoundException
 import java.time.Clock
 import java.time.Duration
 import java.time.Instant
 import java.time.ZoneOffset
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
-import kotlin.test.assertFalse
 
 class ShortLinkCreatorTest {
     private val clock = Clock.fixed(Instant.parse("2026-05-31T00:00:00Z"), ZoneOffset.UTC)
@@ -71,6 +73,12 @@ class ShortLinkCreatorTest {
 
 class RedirectResolverTest {
     private val clock = Clock.fixed(Instant.parse("2026-05-31T00:00:00Z"), ZoneOffset.UTC)
+    private val cachePolicy = RedirectCachePolicy(
+        defaultTtl = Duration.ofMinutes(10),
+        negativeTtl = Duration.ofSeconds(30),
+        goneTtl = Duration.ofMinutes(1),
+        ttlJitterRatio = 0.0,
+    )
 
     @Test
     fun `cache miss면 repository에서 조회하고 cache에 저장한다`() {
@@ -84,13 +92,16 @@ class RedirectResolverTest {
                 createdAt = clock.instant(),
             ),
         )
-        val resolver = RedirectResolver(repository, cache, publisher, clock)
+        val resolver = RedirectResolver(repository, cache, publisher, clock, cachePolicy)
 
         val resolution = resolver.resolve("miss")
 
         assertEquals("https://example.com/miss", resolution.originalUrl)
         assertEquals(false, resolution.cacheHit)
-        assertEquals("https://example.com/miss", cache.getOriginalUrl(ShortCode.from("miss"))?.value)
+        assertEquals(
+            "https://example.com/miss",
+            (cache.getRedirect(ShortCode.from("miss")) as RedirectCacheEntry.Found).originalUrl.value,
+        )
         assertEquals(1, publisher.events.size)
     }
 
@@ -99,14 +110,81 @@ class RedirectResolverTest {
         val repository = InMemoryShortLinkRepository()
         val cache = InMemoryTestShortLinkCache()
         val publisher = CapturingRedirectEventPublisher()
-        cache.putOriginalUrl(ShortCode.from("hit1"), OriginalUrl.from("https://example.com/hit"), null)
-        val resolver = RedirectResolver(repository, cache, publisher, clock)
+        cache.putFound(ShortCode.from("hit1"), OriginalUrl.from("https://example.com/hit"), Duration.ofMinutes(1))
+        val resolver = RedirectResolver(repository, cache, publisher, clock, cachePolicy)
 
         val resolution = resolver.resolve("hit1")
 
         assertEquals("https://example.com/hit", resolution.originalUrl)
         assertEquals(true, resolution.cacheHit)
         assertEquals(1, publisher.events.size)
+    }
+
+    @Test
+    fun `없는 code는 negative cache로 저장해 반복 DB 조회를 막는다`() {
+        val repository = InMemoryShortLinkRepository()
+        val cache = InMemoryTestShortLinkCache()
+        val publisher = CapturingRedirectEventPublisher()
+        val resolver = RedirectResolver(repository, cache, publisher, clock, cachePolicy)
+
+        assertFailsWith<ShortLinkNotFoundException> {
+            resolver.resolve("none")
+        }
+        assertFailsWith<ShortLinkNotFoundException> {
+            resolver.resolve("none")
+        }
+
+        assertEquals(RedirectCacheEntry.NotFound, cache.getRedirect(ShortCode.from("none")))
+        assertEquals(1, repository.findByCodeCount)
+        assertEquals(Duration.ofSeconds(30), cache.lastTtl)
+        assertEquals(0, publisher.events.size)
+    }
+
+    @Test
+    fun `만료된 short link는 gone cache로 저장한다`() {
+        val repository = InMemoryShortLinkRepository()
+        val cache = InMemoryTestShortLinkCache()
+        val publisher = CapturingRedirectEventPublisher()
+        repository.save(
+            ShortLink(
+                code = ShortCode.from("gone"),
+                originalUrl = OriginalUrl.from("https://example.com/gone"),
+                createdAt = clock.instant().minus(Duration.ofDays(2)),
+                expiresAt = clock.instant().minus(Duration.ofDays(1)),
+            ),
+        )
+        val resolver = RedirectResolver(repository, cache, publisher, clock, cachePolicy)
+
+        assertFailsWith<ExpiredShortLinkException> {
+            resolver.resolve("gone")
+        }
+        assertFailsWith<ExpiredShortLinkException> {
+            resolver.resolve("gone")
+        }
+
+        assertEquals(RedirectCacheEntry.Gone, cache.getRedirect(ShortCode.from("gone")))
+        assertEquals(1, repository.findByCodeCount)
+        assertEquals(Duration.ofMinutes(1), cache.lastTtl)
+    }
+
+    @Test
+    fun `만료 시간이 있는 short link는 기본 TTL과 남은 시간 중 더 짧은 값을 캐시한다`() {
+        val repository = InMemoryShortLinkRepository()
+        val cache = InMemoryTestShortLinkCache()
+        val publisher = CapturingRedirectEventPublisher()
+        repository.save(
+            ShortLink(
+                code = ShortCode.from("ttl1"),
+                originalUrl = OriginalUrl.from("https://example.com/ttl"),
+                createdAt = clock.instant(),
+                expiresAt = clock.instant().plus(Duration.ofMinutes(2)),
+            ),
+        )
+        val resolver = RedirectResolver(repository, cache, publisher, clock, cachePolicy)
+
+        resolver.resolve("ttl1")
+
+        assertEquals(Duration.ofMinutes(2), cache.lastTtl)
     }
 }
 
@@ -129,13 +207,17 @@ private class SequenceShortCodeGenerator(vararg codes: String) : ShortCodeGenera
 
 private class InMemoryShortLinkRepository : ShortLinkRepository {
     private val store = linkedMapOf<String, ShortLink>()
+    var findByCodeCount = 0
 
     override fun save(shortLink: ShortLink): ShortLink {
         store[shortLink.code.value] = shortLink
         return shortLink
     }
 
-    override fun findByCode(code: ShortCode): ShortLink? = store[code.value]
+    override fun findByCode(code: ShortCode): ShortLink? {
+        findByCodeCount += 1
+        return store[code.value]
+    }
 
     override fun existsByCode(code: ShortCode): Boolean = store.containsKey(code.value)
 
@@ -144,12 +226,28 @@ private class InMemoryShortLinkRepository : ShortLinkRepository {
 }
 
 private class InMemoryTestShortLinkCache : ShortLinkCache {
-    private val store = mutableMapOf<String, OriginalUrl>()
+    private val store = mutableMapOf<String, RedirectCacheEntry>()
+    var lastTtl: Duration? = null
 
-    override fun getOriginalUrl(code: ShortCode): OriginalUrl? = store[code.value]
+    override fun getRedirect(code: ShortCode): RedirectCacheEntry? = store[code.value]
 
-    override fun putOriginalUrl(code: ShortCode, originalUrl: OriginalUrl, ttl: Duration?) {
-        store[code.value] = originalUrl
+    override fun putFound(code: ShortCode, originalUrl: OriginalUrl, ttl: Duration) {
+        lastTtl = ttl
+        store[code.value] = RedirectCacheEntry.Found(originalUrl)
+    }
+
+    override fun putNotFound(code: ShortCode, ttl: Duration) {
+        lastTtl = ttl
+        store[code.value] = RedirectCacheEntry.NotFound
+    }
+
+    override fun putGone(code: ShortCode, ttl: Duration) {
+        lastTtl = ttl
+        store[code.value] = RedirectCacheEntry.Gone
+    }
+
+    override fun evict(code: ShortCode) {
+        store.remove(code.value)
     }
 }
 

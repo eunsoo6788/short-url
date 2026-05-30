@@ -1,13 +1,15 @@
 package toy.two.shorturl.shortlink.config
 
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean
+import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
-import toy.two.shorturl.shortlink.application.RandomShortCodeGenerator
+import toy.two.shorturl.shortlink.application.RedirectCachePolicy
 import toy.two.shorturl.shortlink.application.RedirectEventProcessor
 import toy.two.shorturl.shortlink.application.RedirectResolver
 import toy.two.shorturl.shortlink.application.ShortLinkCreator
 import toy.two.shorturl.shortlink.application.ShortLinkReader
+import toy.two.shorturl.shortlink.application.TsidShortCodeGenerator
 import toy.two.shorturl.shortlink.application.port.RedirectEventPublisher
 import toy.two.shorturl.shortlink.application.port.ShortCodeGenerator
 import toy.two.shorturl.shortlink.application.port.ShortLinkCache
@@ -15,12 +17,22 @@ import toy.two.shorturl.shortlink.application.port.ShortLinkRepository
 import java.time.Clock
 
 @Configuration
+@EnableConfigurationProperties(RedirectCacheProperties::class)
 class ShortLinkCoreConfiguration {
     @Bean
     fun clock(): Clock = Clock.systemUTC()
 
     @Bean
-    fun shortCodeGenerator(): ShortCodeGenerator = RandomShortCodeGenerator()
+    fun redirectCachePolicy(properties: RedirectCacheProperties): RedirectCachePolicy =
+        RedirectCachePolicy(
+            defaultTtl = properties.defaultTtl,
+            negativeTtl = properties.negativeTtl,
+            goneTtl = properties.goneTtl,
+            ttlJitterRatio = properties.ttlJitterRatio,
+        )
+
+    @Bean
+    fun shortCodeGenerator(): ShortCodeGenerator = TsidShortCodeGenerator()
 
     @Bean
     @ConditionalOnBean(ShortLinkRepository::class)
@@ -42,7 +54,8 @@ class ShortLinkCoreConfiguration {
         cache: ShortLinkCache,
         eventPublisher: RedirectEventPublisher,
         clock: Clock,
-    ): RedirectResolver = RedirectResolver(repository, cache, eventPublisher, clock)
+        redirectCachePolicy: RedirectCachePolicy,
+    ): RedirectResolver = RedirectResolver(repository, cache, eventPublisher, clock, redirectCachePolicy)
 
     @Bean
     fun redirectEventProcessor(): RedirectEventProcessor = RedirectEventProcessor()
