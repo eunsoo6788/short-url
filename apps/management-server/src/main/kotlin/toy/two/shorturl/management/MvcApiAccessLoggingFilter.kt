@@ -50,13 +50,13 @@ class MvcApiAccessLoggingFilter(
                     application = applicationName,
                     method = request.method,
                     uri = requestUri(request),
-                    path = request.requestURI,
-                    query = request.queryString,
+                    path = truncate(request.requestURI, MAX_PATH_LENGTH) ?: "",
+                    query = truncate(request.queryString, MAX_QUERY_LENGTH),
                     status = status,
                     statusFamily = statusFamily(status),
                     durationMs = elapsedMillis(startedNanos),
-                    remoteAddr = remoteAddr(request),
-                    userAgent = request.getHeader("User-Agent"),
+                    remoteAddr = truncate(remoteAddr(request), MAX_REMOTE_ADDR_LENGTH),
+                    userAgent = truncate(request.getHeader("User-Agent"), MAX_USER_AGENT_LENGTH),
                     traceId = traceId,
                 ),
             )
@@ -69,18 +69,23 @@ class MvcApiAccessLoggingFilter(
     }
 
     private fun requestUri(request: HttpServletRequest): String {
-        val query = request.queryString
-        return if (includeQueryString && !query.isNullOrBlank()) {
+        val query = truncate(request.queryString, MAX_QUERY_LENGTH)
+        val uri = if (includeQueryString && !query.isNullOrBlank()) {
             "${request.requestURI}?$query"
         } else {
             request.requestURI
         }
+
+        return truncate(uri, MAX_URI_LENGTH) ?: ""
     }
 
     private fun traceId(request: HttpServletRequest): String =
-        request.getHeader(TRACE_ID_HEADER)
+        truncate(
+            request.getHeader(TRACE_ID_HEADER)
             ?: request.getHeader(B3_TRACE_ID_HEADER)
-            ?: UUID.randomUUID().toString()
+            ?: UUID.randomUUID().toString(),
+            MAX_TRACE_ID_LENGTH,
+        ) ?: UUID.randomUUID().toString()
 
     private fun remoteAddr(request: HttpServletRequest): String? =
         request.getHeader("X-Forwarded-For")
@@ -92,9 +97,24 @@ class MvcApiAccessLoggingFilter(
     private fun elapsedMillis(startedNanos: Long): Long =
         TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedNanos).coerceAtLeast(0)
 
+    private fun truncate(value: String?, maxLength: Int): String? {
+        if (value == null || value.length <= maxLength) {
+            return value
+        }
+
+        return value.take(maxLength) + TRUNCATED_SUFFIX
+    }
+
     companion object {
         private const val TRACE_ID_HEADER = "X-Request-Id"
         private const val B3_TRACE_ID_HEADER = "X-B3-TraceId"
+        private const val MAX_URI_LENGTH = 2048
+        private const val MAX_PATH_LENGTH = 512
+        private const val MAX_QUERY_LENGTH = 1024
+        private const val MAX_USER_AGENT_LENGTH = 512
+        private const val MAX_TRACE_ID_LENGTH = 128
+        private const val MAX_REMOTE_ADDR_LENGTH = 128
+        private const val TRUNCATED_SUFFIX = "...[truncated]"
         private val log = LoggerFactory.getLogger(MvcApiAccessLoggingFilter::class.java)
     }
 }

@@ -2,6 +2,7 @@ package toy.two.shorturl.management
 
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
+import org.springframework.http.converter.HttpMessageNotReadableException
 import org.springframework.web.bind.annotation.ExceptionHandler
 import org.springframework.web.bind.annotation.RestControllerAdvice
 import toy.two.shorturl.common.ErrorResponse
@@ -17,6 +18,23 @@ class ManagementExceptionHandler {
     @ExceptionHandler(InvalidOriginalUrlException::class, InvalidShortCodeException::class)
     fun handleBadRequest(exception: RuntimeException): ResponseEntity<ErrorResponse> =
         error(HttpStatus.BAD_REQUEST, "BAD_REQUEST", exception)
+
+    @ExceptionHandler(HttpMessageNotReadableException::class)
+    fun handleUnreadableMessage(exception: HttpMessageNotReadableException): ResponseEntity<ErrorResponse> {
+        if (exception.hasCause<RequestBodyTooLargeException>()) {
+            return error(
+                HttpStatus.PAYLOAD_TOO_LARGE,
+                "PAYLOAD_TOO_LARGE",
+                RuntimeException("Create short link request body is too large"),
+            )
+        }
+
+        return error(
+            HttpStatus.BAD_REQUEST,
+            "BAD_REQUEST",
+            RuntimeException("Malformed request body"),
+        )
+    }
 
     @ExceptionHandler(ShortCodeAlreadyExistsException::class)
     fun handleConflict(exception: ShortCodeAlreadyExistsException): ResponseEntity<ErrorResponse> =
@@ -46,4 +64,15 @@ class ManagementExceptionHandler {
                     message = exception.message ?: status.reasonPhrase,
                 ),
             )
+}
+
+private inline fun <reified T : Throwable> Throwable.hasCause(): Boolean {
+    var current: Throwable? = this
+    while (current != null) {
+        if (current is T) {
+            return true
+        }
+        current = current.cause
+    }
+    return false
 }

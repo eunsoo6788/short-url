@@ -80,7 +80,7 @@ Valkey 장애가 redirect 장애로 바로 전파되지 않게 Redis cache adapt
 - cache write 실패: 경고 로그를 남기고 redirect 응답은 계속 진행한다.
 - cache evict 실패: 경고 로그를 남긴다.
 
-이 정책은 가용성을 우선한다. 단, Valkey 장애 중에는 local cache에 없는 key가 PostgreSQL까지 내려가므로 운영 환경에서는 DB connection pool, rate limit, circuit breaker, cache 복구 알림을 함께 둔다.
+이 정책은 가용성을 우선한다. 단, Valkey 장애 중에는 local cache에 없는 key가 PostgreSQL까지 내려가므로 운영 환경에서는 DB connection pool, rate limit, circuit breaker, cache 복구 알림을 함께 둔다. 로컬 설정은 Redis command timeout을 짧게 둬서 Redis 지연이 redirect worker thread를 오래 붙잡지 않게 한다.
 
 ## 무효화 정책
 

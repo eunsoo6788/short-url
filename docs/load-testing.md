@@ -34,6 +34,7 @@ REDIRECT_BASE_URL=http://host.docker.internal:8081
 | `load-tests/k6/mixed-load.js` | 생성 API와 redirect API를 섞은 read-heavy 부하 테스트 |
 | `load-tests/k6/cache-stress.js` | cold hot key, sustained hot key, spread key로 cache stampede/hot key 방어 스트레스 테스트 |
 | `load-tests/k6/cache-miss-stress.js` | 존재하지 않는 code의 negative cache, hot missing key, 랜덤 scan 스트레스 테스트 |
+| `load-tests/k6/pathological-inputs.js` | 긴 query/header, oversized create payload, duplicate custom code로 입력/로그/DB 제약 경로 스트레스 테스트 |
 
 ## Smoke Test
 
@@ -150,6 +151,29 @@ docker compose run --rm \
   k6 run /scripts/cache-miss-stress.js
 ```
 
+## Pathological Inputs Test
+
+단순히 RPS만 올리지 않고 정상/비정상 입력의 모양으로 병목을 찾는다.
+
+- `long_query_redirect`: 같은 short code를 redirect하되 긴 query string과 긴 trace header를 붙인다. 캐시는 hit이어도 access log 직렬화/파일 쓰기 경로가 커지는지 본다.
+- `invalid_create_payloads`: 2048자를 넘는 URL 생성 요청을 반복해 validation/Jackson parsing 전에 oversized body guard가 400 또는 413으로 빠르게 거절하는지 본다.
+- `duplicate_custom_code_race`: 이미 존재하는 custom code 생성을 반복해 DB unique constraint와 예외 변환 경로가 409로 빠르게 끝나는지 본다.
+
+```bash
+docker compose run --rm k6 run /scripts/pathological-inputs.js
+```
+
+강도를 높일 때:
+
+```bash
+docker compose run --rm \
+  -e PATHOLOGICAL_LONG_QUERY_VUS=100 \
+  -e PATHOLOGICAL_LONG_QUERY_BYTES=3000 \
+  -e PATHOLOGICAL_INVALID_CREATE_RATE=100 \
+  -e PATHOLOGICAL_DUPLICATE_CREATE_RATE=50 \
+  k6 run /scripts/pathological-inputs.js
+```
+
 ## 환경변수
 
 | Name | Default | 설명 |
@@ -187,6 +211,17 @@ docker compose run --rm \
 | `MISS_UNIQUE_SCAN_DURATION` | `1m` | cache-miss-stress unique missing key scan 지속 시간 |
 | `MISS_UNIQUE_SCAN_PRE_ALLOCATED_VUS` | `100` | cache-miss-stress unique scan pre-allocated VU 수 |
 | `MISS_UNIQUE_SCAN_MAX_VUS` | `500` | cache-miss-stress unique scan max VU 수 |
+| `PATHOLOGICAL_LONG_QUERY_VUS` | `50` | pathological-inputs 긴 query redirect VU 수 |
+| `PATHOLOGICAL_LONG_QUERY_DURATION` | `30s` | pathological-inputs 긴 query redirect 지속 시간 |
+| `PATHOLOGICAL_LONG_QUERY_BYTES` | `2000` | pathological-inputs query value 길이 |
+| `PATHOLOGICAL_INVALID_CREATE_RATE` | `50` | pathological-inputs oversized create 초당 요청 수 |
+| `PATHOLOGICAL_INVALID_CREATE_DURATION` | `30s` | pathological-inputs oversized create 지속 시간 |
+| `PATHOLOGICAL_DUPLICATE_CREATE_RATE` | `20` | pathological-inputs duplicate custom code 초당 요청 수 |
+| `PATHOLOGICAL_DUPLICATE_CREATE_DURATION` | `30s` | pathological-inputs duplicate custom code 지속 시간 |
+
+Management Server는 `short-url.management.create.max-request-body-bytes=4096`을 기본값으로 둔다. 정상 create 요청은 `originalUrl` 도메인 검증 한도보다 여유가 있지만, pathological test의 oversized body는 컨트롤러/Jackson 파싱 전에 `413 Payload Too Large`로 잘려야 한다. body가 `short-url.management.create.max-drain-body-bytes=8192` 이하이면 남은 body를 drain한 뒤 keep-alive를 유지하고, 그보다 크거나 길이를 모르는 상태에서 한도를 넘으면 HTTP 연결 재사용을 막기 위해 `Connection: close`로 응답한다.
+
+`PATHOLOGICAL_LONG_QUERY_VUS=0`, `PATHOLOGICAL_INVALID_CREATE_RATE=0`, `PATHOLOGICAL_DUPLICATE_CREATE_RATE=0`처럼 0을 지정하면 해당 scenario를 비활성화한다. 한 병목만 격리해서 볼 때 사용한다.
 
 ## 기본 Threshold
 

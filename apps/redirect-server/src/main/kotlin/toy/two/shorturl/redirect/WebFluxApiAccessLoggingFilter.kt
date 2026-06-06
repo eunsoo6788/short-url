@@ -44,13 +44,13 @@ class WebFluxApiAccessLoggingFilter(
                         application = applicationName,
                         method = exchange.request.method.name(),
                         uri = requestUri(exchange),
-                        path = path,
-                        query = exchange.request.uri.rawQuery,
+                        path = truncate(path, MAX_PATH_LENGTH) ?: "",
+                        query = truncate(exchange.request.uri.rawQuery, MAX_QUERY_LENGTH),
                         status = status,
                         statusFamily = statusFamily(status),
                         durationMs = elapsedMillis(startedNanos),
-                        remoteAddr = remoteAddr(exchange),
-                        userAgent = exchange.request.headers.getFirst("User-Agent"),
+                        remoteAddr = truncate(remoteAddr(exchange), MAX_REMOTE_ADDR_LENGTH),
+                        userAgent = truncate(exchange.request.headers.getFirst("User-Agent"), MAX_USER_AGENT_LENGTH),
                         traceId = traceId,
                     ),
                 )
@@ -64,18 +64,23 @@ class WebFluxApiAccessLoggingFilter(
 
     private fun requestUri(exchange: ServerWebExchange): String {
         val path = exchange.request.path.pathWithinApplication().value()
-        val query = exchange.request.uri.rawQuery
-        return if (includeQueryString && !query.isNullOrBlank()) {
+        val query = truncate(exchange.request.uri.rawQuery, MAX_QUERY_LENGTH)
+        val uri = if (includeQueryString && !query.isNullOrBlank()) {
             "$path?$query"
         } else {
             path
         }
+
+        return truncate(uri, MAX_URI_LENGTH) ?: ""
     }
 
     private fun traceId(exchange: ServerWebExchange): String =
-        exchange.request.headers.getFirst(TRACE_ID_HEADER)
+        truncate(
+            exchange.request.headers.getFirst(TRACE_ID_HEADER)
             ?: exchange.request.headers.getFirst(B3_TRACE_ID_HEADER)
-            ?: UUID.randomUUID().toString()
+            ?: UUID.randomUUID().toString(),
+            MAX_TRACE_ID_LENGTH,
+        ) ?: UUID.randomUUID().toString()
 
     private fun remoteAddr(exchange: ServerWebExchange): String? =
         exchange.request.headers.getFirst("X-Forwarded-For")
@@ -87,9 +92,24 @@ class WebFluxApiAccessLoggingFilter(
     private fun elapsedMillis(startedNanos: Long): Long =
         TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedNanos).coerceAtLeast(0)
 
+    private fun truncate(value: String?, maxLength: Int): String? {
+        if (value == null || value.length <= maxLength) {
+            return value
+        }
+
+        return value.take(maxLength) + TRUNCATED_SUFFIX
+    }
+
     companion object {
         private const val TRACE_ID_HEADER = "X-Request-Id"
         private const val B3_TRACE_ID_HEADER = "X-B3-TraceId"
+        private const val MAX_URI_LENGTH = 2048
+        private const val MAX_PATH_LENGTH = 512
+        private const val MAX_QUERY_LENGTH = 1024
+        private const val MAX_USER_AGENT_LENGTH = 512
+        private const val MAX_TRACE_ID_LENGTH = 128
+        private const val MAX_REMOTE_ADDR_LENGTH = 128
+        private const val TRUNCATED_SUFFIX = "...[truncated]"
         private val log = LoggerFactory.getLogger(WebFluxApiAccessLoggingFilter::class.java)
     }
 }

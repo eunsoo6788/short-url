@@ -61,4 +61,31 @@ class WebFluxApiAccessLoggingFilterTest {
 
         assertFalse(Files.readString(logFile).contains("actuator"))
     }
+
+    @Test
+    fun `긴 query와 header는 access log에서 잘라낸다`() {
+        val logFile = Files.createTempFile("redirect-long-access", ".log")
+        val filter = WebFluxApiAccessLoggingFilter(
+            applicationName = "short-url-redirect-server",
+            writer = ApiAccessLogJsonWriter(ObjectMapper(), logFile),
+        )
+        val longQueryValue = "a".repeat(2_000)
+        val longTraceId = "trace-" + "b".repeat(300)
+        val exchange = MockServerWebExchange.from(
+            MockServerHttpRequest.get("/go12?q=$longQueryValue")
+                .header("X-Request-Id", longTraceId)
+                .build(),
+        )
+        val chain = WebFilterChain { filteredExchange ->
+            filteredExchange.response.statusCode = HttpStatus.FOUND
+            Mono.empty()
+        }
+
+        filter.filter(exchange, chain).block()
+
+        val line = Files.readString(logFile).trim()
+        assertContains(line, "...[truncated]")
+        assertFalse(line.contains(longQueryValue))
+        assertFalse(line.contains(longTraceId))
+    }
 }

@@ -57,4 +57,29 @@ class MvcApiAccessLoggingFilterTest {
 
         assertFalse(Files.readString(logFile).contains("actuator"))
     }
+
+    @Test
+    fun `긴 query와 header는 access log에서 잘라낸다`() {
+        val logFile = Files.createTempFile("management-long-access", ".log")
+        val filter = MvcApiAccessLoggingFilter(
+            applicationName = "short-url-management-server",
+            writer = ApiAccessLogJsonWriter(ObjectMapper(), logFile),
+        )
+        val longQueryValue = "a".repeat(2_000)
+        val longTraceId = "trace-" + "b".repeat(300)
+        val request = MockHttpServletRequest("GET", "/api/v1/short-links").apply {
+            queryString = "q=$longQueryValue"
+            addHeader("X-Request-Id", longTraceId)
+        }
+        val response = MockHttpServletResponse()
+
+        filter.doFilter(request, response) { _, servletResponse ->
+            (servletResponse as HttpServletResponse).status = HttpServletResponse.SC_OK
+        }
+
+        val line = Files.readString(logFile).trim()
+        assertContains(line, "...[truncated]")
+        assertFalse(line.contains(longQueryValue))
+        assertFalse(line.contains(longTraceId))
+    }
 }

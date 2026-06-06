@@ -131,6 +131,21 @@ short-url.cache.stampede.wait-timeout=500ms
 short-url.cache.stampede.poll-interval=20ms
 spring.data.redis.host=localhost
 spring.data.redis.port=6379
+spring.data.redis.timeout=100ms
+spring.datasource.hikari.connection-timeout=500
+spring.datasource.hikari.validation-timeout=500
+spring.transaction.default-timeout=2s
+```
+
+Management Server는 oversized/slow create request가 request parsing 전에 자원을 오래 붙잡지 않도록 Servlet/Tomcat 경계에도 제한을 둔다.
+
+```properties
+short-url.management.create.max-request-body-bytes=4096
+short-url.management.create.max-drain-body-bytes=8192
+server.tomcat.connection-timeout=2s
+server.tomcat.keep-alive-timeout=5s
+server.tomcat.max-keep-alive-requests=100
+server.tomcat.max-swallow-size=64KB
 ```
 
 캐시 TTL 기본값:
