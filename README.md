@@ -230,7 +230,7 @@ flowchart LR
 
 - `apps:redirect-server`
   - `GET /{code}` redirect
-  - Valkey cache 우선 조회
+  - Caffeine local cache, Valkey cache 순서로 조회
   - cache miss 시 PostgreSQL fallback
   - WebFlux 기반
   - JPA/RedisTemplate 호출은 `boundedElastic`으로 격리
@@ -300,13 +300,15 @@ V1__create_short_links.sql
 
 Redirect Server는 read path에서 cache-aside 전략을 사용한다.
 
-1. Valkey에서 redirect cache entry 조회
-2. `FOUND`면 DB 조회 없이 redirect
-3. `NOT_FOUND`면 DB 조회 없이 404
-4. `GONE`이면 DB 조회 없이 410
-5. Cache miss면 PostgreSQL 조회 후 결과를 Valkey에 저장
-6. TTL jitter와 per-code single-flight로 cache stampede를 완화
-7. Valkey 장애 시 redirect는 DB fallback으로 fail-open
+1. Caffeine local cache에서 redirect cache entry 조회
+2. local miss면 Valkey에서 redirect cache entry 조회
+3. `FOUND`면 DB 조회 없이 redirect
+4. `NOT_FOUND`면 DB 조회 없이 404
+5. `GONE`이면 DB 조회 없이 410
+6. Cache miss면 Redis 기반 cache load lock으로 DB stampede를 완화
+7. lock owner가 PostgreSQL 조회 후 결과를 Caffeine local cache와 Valkey에 저장
+8. TTL jitter, local single-flight, Redis distributed lock으로 cache stampede와 hot key 부하를 완화
+9. Valkey 장애 시 redirect는 DB fallback으로 fail-open
 
 자세한 내용은 [docs/cache-strategy.md](docs/cache-strategy.md)를 참고한다.
 

@@ -1,6 +1,8 @@
 package toy.two.shorturl.shortlink.application
 
+import toy.two.shorturl.shortlink.application.port.NoOpShortLinkCache
 import toy.two.shorturl.shortlink.application.port.ShortCodeGenerator
+import toy.two.shorturl.shortlink.application.port.ShortLinkCache
 import toy.two.shorturl.shortlink.application.port.ShortLinkRepository
 import toy.two.shorturl.shortlink.domain.OriginalUrl
 import toy.two.shorturl.shortlink.domain.ShortCode
@@ -20,6 +22,7 @@ class ShortLinkCreator(
     private val repository: ShortLinkRepository,
     private val codeGenerator: ShortCodeGenerator,
     private val clock: Clock,
+    private val redirectCache: ShortLinkCache = NoOpShortLinkCache,
 ) {
     fun create(command: CreateShortLinkCommand): ShortLink {
         val now = clock.instant()
@@ -32,7 +35,7 @@ class ShortLinkCreator(
             throw ShortCodeAlreadyExistsException("이미 사용 중인 짧은 코드입니다: ${code.value}")
         }
 
-        return repository.save(
+        val shortLink = repository.save(
             ShortLink(
                 code = code,
                 originalUrl = OriginalUrl.from(command.originalUrl),
@@ -40,6 +43,9 @@ class ShortLinkCreator(
                 expiresAt = command.expiresAt,
             ),
         )
+
+        redirectCache.evict(shortLink.code)
+        return shortLink
     }
 
     private fun generateUniqueCode(): ShortCode {

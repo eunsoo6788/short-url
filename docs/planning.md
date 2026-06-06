@@ -12,10 +12,10 @@
   - 최근 Short URL 목록 조회
 - Redirect Server
   - 짧은 코드 기반 302 리다이렉트
-  - Valkey 캐시 우선 조회
+  - Caffeine local cache, Valkey cache 순서로 조회
   - cache miss 시 PostgreSQL fallback
   - negative cache와 gone cache 적용
-  - per-code single-flight로 cache stampede 완화
+  - per-code single-flight와 Redis distributed lock으로 cache stampede 완화
   - 리다이렉트 이벤트 발행 포트 호출
 - Worker Server
   - 이벤트 polling worker 골격
@@ -56,5 +56,5 @@
 - 클릭 이벤트 저장소와 통계 API 추가
 - URL 비활성화/삭제 API와 캐시 무효화 정책 추가
 - custom alias 예약어 정책 추가
-- multi-node cache stampede 완화가 필요해지면 Valkey 기반 distributed lock 또는 request coalescing 전용 계층 추가
+- 대규모 hot key가 더 커지면 local cache pre-warming, stale-while-revalidate, CDN/edge cache 검토
 - Grafana alert rule, SLO dashboard, 부하 테스트 리포트 추가

@@ -1,7 +1,9 @@
 package toy.two.shorturl.shortlink.application
 
 import toy.two.shorturl.shortlink.application.port.RedirectEventPublisher
+import toy.two.shorturl.shortlink.application.port.NoOpRedirectCacheLoadLock
 import toy.two.shorturl.shortlink.application.port.RedirectCacheEntry
+import toy.two.shorturl.shortlink.application.port.RedirectCacheLoadLock
 import toy.two.shorturl.shortlink.application.port.ShortLinkCache
 import toy.two.shorturl.shortlink.application.port.ShortLinkRepository
 import toy.two.shorturl.shortlink.application.port.NoOpRedirectMetricsRecorder
@@ -35,6 +37,7 @@ class RedirectResolver(
     private val clock: Clock,
     private val cachePolicy: RedirectCachePolicy = RedirectCachePolicy(),
     private val metricsRecorder: RedirectMetricsRecorder = NoOpRedirectMetricsRecorder,
+    private val cacheLoadLock: RedirectCacheLoadLock = NoOpRedirectCacheLoadLock,
 ) {
     private val loadLocks = ConcurrentHashMap<String, Any>()
 
@@ -86,11 +89,63 @@ class RedirectResolver(
                             "만료되었거나 비활성화된 짧은 URL입니다.",
                         )
                     }
-                    null -> resolveFromRepository(code)
+                    null -> resolveFromRepositoryWithLoadLock(code)
                 }
             }
         } finally {
             loadLocks.remove(code.value, lock)
+        }
+    }
+
+    private fun resolveFromRepositoryWithLoadLock(code: ShortCode): RedirectResolution {
+        val lockHandle = cacheLoadLock.tryAcquire(code)
+
+        if (lockHandle == null) {
+            return resolveAfterWaitingForCacheFill(code)
+        }
+
+        lockHandle.use {
+            return when (val cached = cache.getRedirect(code)) {
+                is RedirectCacheEntry.Found -> {
+                    metricsRecorder.recordFound()
+                    resolved(code, cached.originalUrl, cacheHit = true)
+                }
+                RedirectCacheEntry.NotFound -> {
+                    metricsRecorder.recordNotFound()
+                    throw ShortLinkNotFoundException(
+                        "짧은 URL을 찾을 수 없습니다: ${code.value}",
+                    )
+                }
+                RedirectCacheEntry.Gone -> {
+                    metricsRecorder.recordGone()
+                    throw ExpiredShortLinkException(
+                        "만료되었거나 비활성화된 짧은 URL입니다.",
+                    )
+                }
+                null -> resolveFromRepository(code)
+            }
+        }
+    }
+
+    private fun resolveAfterWaitingForCacheFill(code: ShortCode): RedirectResolution {
+        return when (val cached = cacheLoadLock.waitForCacheFill(code) { cache.getRedirect(code) }) {
+            is RedirectCacheEntry.Found -> {
+                metricsRecorder.recordFound()
+                resolved(code, cached.originalUrl, cacheHit = true)
+            }
+            RedirectCacheEntry.NotFound -> {
+                metricsRecorder.recordNotFound()
+                throw ShortLinkNotFoundException(
+                    "짧은 URL을 찾을 수 없습니다: ${code.value}",
+                )
+            }
+            RedirectCacheEntry.Gone -> {
+                metricsRecorder.recordGone()
+                throw ExpiredShortLinkException(
+                    "만료되었거나 비활성화된 짧은 URL입니다.",
+                )
+            }
+            null -> resolveFromRepository(code)
         }
     }
 

@@ -74,14 +74,16 @@ modules:shortlink-messaging -> modules:shortlink-core
 ## 리다이렉트 흐름
 
 1. `GET /{code}` 요청이 `redirect-server`로 들어온다.
-2. `RedirectResolver`가 `ShortLinkCache`에서 redirect cache entry를 먼저 조회한다.
+2. `RedirectResolver`가 `ShortLinkCache`에서 redirect cache entry를 먼저 조회한다. Redis가 활성화된 환경에서는 `ShortLinkCache`가 Caffeine local cache를 먼저 보고, miss일 때 Valkey/Redis를 조회한다.
 3. `FOUND` cache hit이면 DB 조회 없이 원본 URL로 redirect한다.
 4. `NOT_FOUND` cache hit이면 PostgreSQL 조회 없이 404를 반환한다.
 5. `GONE` cache hit이면 PostgreSQL 조회 없이 410을 반환한다.
-6. 캐시 미스면 per-code single-flight lock 안에서 cache를 다시 확인한 뒤 PostgreSQL을 조회한다.
-7. 조회 결과에 따라 `FOUND`, `NOT_FOUND`, `GONE`을 TTL과 함께 Valkey에 저장한다.
-8. 정상 redirect일 때만 리다이렉트 이벤트를 `RedirectEventPublisher`로 발행한다.
-9. HTTP 302 응답으로 원본 URL 위치를 내려준다.
+6. 캐시 미스면 per-code single-flight lock 안에서 cache를 다시 확인한다.
+7. Redis까지 miss이면 Redis 기반 cache load lock을 사용해 다중 인스턴스 DB stampede를 줄인다.
+8. lock을 획득한 요청만 PostgreSQL을 조회하고, lock을 얻지 못한 요청은 짧게 cache fill을 기다린다.
+9. 조회 결과에 따라 `FOUND`, `NOT_FOUND`, `GONE`을 TTL과 함께 Caffeine local cache와 Valkey에 저장한다.
+10. 정상 redirect일 때만 리다이렉트 이벤트를 `RedirectEventPublisher`로 발행한다.
+11. HTTP 302 응답으로 원본 URL 위치를 내려준다.
 
 WebFlux 서버에서 JPA와 RedisTemplate 기반 호출은 blocking 작업이므로 컨트롤러에서 `boundedElastic` 스케줄러로 격리한다.
 

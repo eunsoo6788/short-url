@@ -1,5 +1,6 @@
 package toy.two.shorturl.shortlink.config
 
+import org.springframework.beans.factory.ObjectProvider
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean
 import org.springframework.boot.context.properties.EnableConfigurationProperties
@@ -12,7 +13,10 @@ import toy.two.shorturl.shortlink.application.ShortLinkCreator
 import toy.two.shorturl.shortlink.application.ShortLinkReader
 import toy.two.shorturl.shortlink.application.TsidShortCodeGenerator
 import toy.two.shorturl.shortlink.application.port.RedirectEventPublisher
+import toy.two.shorturl.shortlink.application.port.NoOpRedirectCacheLoadLock
 import toy.two.shorturl.shortlink.application.port.NoOpRedirectMetricsRecorder
+import toy.two.shorturl.shortlink.application.port.NoOpShortLinkCache
+import toy.two.shorturl.shortlink.application.port.RedirectCacheLoadLock
 import toy.two.shorturl.shortlink.application.port.RedirectMetricsRecorder
 import toy.two.shorturl.shortlink.application.port.ShortCodeGenerator
 import toy.two.shorturl.shortlink.application.port.ShortLinkCache
@@ -47,7 +51,13 @@ class ShortLinkCoreConfiguration {
         repository: ShortLinkRepository,
         codeGenerator: ShortCodeGenerator,
         clock: Clock,
-    ): ShortLinkCreator = ShortLinkCreator(repository, codeGenerator, clock)
+        shortLinkCache: ObjectProvider<ShortLinkCache>,
+    ): ShortLinkCreator = ShortLinkCreator(
+        repository,
+        codeGenerator,
+        clock,
+        shortLinkCache.getIfAvailable { NoOpShortLinkCache },
+    )
 
     @Bean
     @ConditionalOnBean(ShortLinkRepository::class)
@@ -63,6 +73,7 @@ class ShortLinkCoreConfiguration {
         clock: Clock,
         redirectCachePolicy: RedirectCachePolicy,
         redirectMetricsRecorder: RedirectMetricsRecorder,
+        redirectCacheLoadLock: ObjectProvider<RedirectCacheLoadLock>,
     ): RedirectResolver = RedirectResolver(
         repository,
         cache,
@@ -70,6 +81,7 @@ class ShortLinkCoreConfiguration {
         clock,
         redirectCachePolicy,
         redirectMetricsRecorder,
+        redirectCacheLoadLock.getIfAvailable { NoOpRedirectCacheLoadLock },
     )
 
     @Bean

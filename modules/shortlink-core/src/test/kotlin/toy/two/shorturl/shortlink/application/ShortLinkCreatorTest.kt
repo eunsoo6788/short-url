@@ -2,6 +2,8 @@ package toy.two.shorturl.shortlink.application
 
 import org.junit.jupiter.api.Test
 import toy.two.shorturl.shortlink.application.port.RedirectCacheEntry
+import toy.two.shorturl.shortlink.application.port.RedirectCacheLoadLock
+import toy.two.shorturl.shortlink.application.port.RedirectCacheLoadLockHandle
 import toy.two.shorturl.shortlink.application.port.RedirectEventPublisher
 import toy.two.shorturl.shortlink.application.port.RedirectMetricsRecorder
 import toy.two.shorturl.shortlink.application.port.ShortCodeGenerator
@@ -69,6 +71,20 @@ class ShortLinkCreatorTest {
 
         assertEquals("free", shortLink.code.value)
         assertEquals(listOf("dupe", "free"), generator.generatedCodes.map { it.value })
+    }
+
+    @Test
+    fun `short link 생성 성공 시 redirect cache를 evict한다`() {
+        val repository = InMemoryShortLinkRepository()
+        val cache = InMemoryTestShortLinkCache()
+        val creator = ShortLinkCreator(repository, FixedShortCodeGenerator("abcd"), clock, cache)
+        val code = ShortCode.from("new1")
+        cache.putNotFound(code, Duration.ofSeconds(30))
+
+        creator.create(CreateShortLinkCommand("https://example.com/new", customCode = "new1"))
+
+        assertEquals(null, cache.getRedirect(code))
+        assertEquals(listOf("new1"), cache.evictedCodes)
     }
 }
 
@@ -203,6 +219,30 @@ class RedirectResolverTest {
 
         assertEquals(Duration.ofMinutes(2), cache.lastTtl)
     }
+
+    @Test
+    fun `다른 인스턴스가 캐시를 채우는 중이면 기다린 뒤 캐시 값으로 응답한다`() {
+        val repository = InMemoryShortLinkRepository()
+        val cache = InMemoryTestShortLinkCache()
+        val publisher = CapturingRedirectEventPublisher()
+        val loadLock = WaitingRedirectCacheLoadLock(
+            RedirectCacheEntry.Found(OriginalUrl.from("https://example.com/waited")),
+        )
+        val resolver = RedirectResolver(
+            repository = repository,
+            cache = cache,
+            eventPublisher = publisher,
+            clock = clock,
+            cachePolicy = cachePolicy,
+            cacheLoadLock = loadLock,
+        )
+
+        val resolution = resolver.resolve("wait1")
+
+        assertEquals("https://example.com/waited", resolution.originalUrl)
+        assertEquals(true, resolution.cacheHit)
+        assertEquals(0, repository.findByCodeCount)
+    }
 }
 
 private class FixedShortCodeGenerator(code: String) : ShortCodeGenerator {
@@ -244,6 +284,7 @@ private class InMemoryShortLinkRepository : ShortLinkRepository {
 
 private class InMemoryTestShortLinkCache : ShortLinkCache {
     private val store = mutableMapOf<String, RedirectCacheEntry>()
+    val evictedCodes = mutableListOf<String>()
     var lastTtl: Duration? = null
 
     override fun getRedirect(code: ShortCode): RedirectCacheEntry? = store[code.value]
@@ -264,6 +305,7 @@ private class InMemoryTestShortLinkCache : ShortLinkCache {
     }
 
     override fun evict(code: ShortCode) {
+        evictedCodes += code.value
         store.remove(code.value)
     }
 }
@@ -302,4 +344,15 @@ private class CapturingRedirectMetricsRecorder : RedirectMetricsRecorder {
     override fun recordGone() {
         gone += 1
     }
+}
+
+private class WaitingRedirectCacheLoadLock(
+    private val cacheEntry: RedirectCacheEntry,
+) : RedirectCacheLoadLock {
+    override fun tryAcquire(code: ShortCode): RedirectCacheLoadLockHandle? = null
+
+    override fun waitForCacheFill(
+        code: ShortCode,
+        cacheLookup: () -> RedirectCacheEntry?,
+    ): RedirectCacheEntry = cacheEntry
 }

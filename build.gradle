@@ -105,6 +105,7 @@ project(':modules:shortlink-persistence') {
 project(':modules:shortlink-cache') {
     dependencies {
         api project(':modules:shortlink-core')
+        implementation 'com.github.ben-manes.caffeine:caffeine'
         implementation 'org.springframework.boot:spring-boot-starter-data-redis'
     }
 }

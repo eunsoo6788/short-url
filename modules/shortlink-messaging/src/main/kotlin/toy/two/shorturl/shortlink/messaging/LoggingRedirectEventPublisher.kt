@@ -8,11 +8,13 @@ class LoggingRedirectEventPublisher : RedirectEventPublisher {
     private val log = LoggerFactory.getLogger(javaClass)
 
     override fun publish(event: RedirectRecordedEvent) {
-        log.info(
-            "redirect event published code={} cacheHit={} redirectedAt={}",
-            event.code,
-            event.cacheHit,
-            event.redirectedAt,
-        )
+        if (log.isDebugEnabled) {
+            log.debug(
+                "redirect event published code={} cacheHit={} redirectedAt={}",
+                event.code,
+                event.cacheHit,
+                event.redirectedAt,
+            )
+        }
     }
 }

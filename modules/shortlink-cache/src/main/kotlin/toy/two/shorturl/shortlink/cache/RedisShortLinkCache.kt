@@ -7,15 +7,32 @@ import toy.two.shorturl.shortlink.application.port.ShortLinkCache
 import toy.two.shorturl.shortlink.domain.OriginalUrl
 import toy.two.shorturl.shortlink.domain.ShortCode
 import java.time.Duration
+import java.util.concurrent.TimeUnit
 
 class RedisShortLinkCache(
     private val redisTemplate: StringRedisTemplate,
-) : ShortLinkCache {
+) : TtlAwareShortLinkCache {
     private val log = LoggerFactory.getLogger(javaClass)
 
     override fun getRedirect(code: ShortCode): RedirectCacheEntry? =
         runCatching {
             redisTemplate.opsForValue().get(key(code))?.let { decode(it) }
+        }.getOrElse { exception ->
+            log.warn("redirect cache read failed code=${code.value}", exception)
+            null
+        }
+
+    override fun getRedirectWithTtl(code: ShortCode): TtlAwareRedirectCacheEntry? =
+        runCatching {
+            val cacheKey = key(code)
+            val value = redisTemplate.opsForValue().get(cacheKey) ?: return@runCatching null
+            val entry = decode(value) ?: return@runCatching null
+            val ttlMillis: Long? = redisTemplate.getExpire(cacheKey, TimeUnit.MILLISECONDS)
+            val ttl = ttlMillis
+                ?.takeIf { it > 0 }
+                ?.let(Duration::ofMillis)
+
+            TtlAwareRedirectCacheEntry(entry, ttl)
         }.getOrElse { exception ->
             log.warn("redirect cache read failed code=${code.value}", exception)
             null

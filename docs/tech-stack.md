@@ -14,6 +14,7 @@
 - Spring Scheduling: Worker Server
 - Spring Data JPA: PostgreSQL persistence
 - Spring Data Redis: Valkey/Redis protocol cache
+- Caffeine: redirect local cache
 - Flyway: database schema migration
 - tsid-creator: time-sorted short code generation
 - Spring Boot Actuator: health, metrics, prometheus endpoint
@@ -28,8 +29,9 @@
   - 테이블 생성/수정/삭제는 Flyway migration으로만 수행한다.
 - Elastic Cache Valkey
   - Redis protocol을 사용한다.
-  - `short-url.cache.redis.enabled=true`일 때 `StringRedisTemplate` 기반 캐시를 사용한다.
-  - 기본값은 로컬 테스트를 위한 in-memory cache다.
+  - `short-url.cache.redis.enabled=true`일 때 Caffeine local cache miss 이후 `StringRedisTemplate` 기반 remote cache를 사용한다.
+  - Redis cache hit은 남은 TTL만큼 Caffeine local cache에 backfill한다.
+  - Redis 비활성화 시에는 Caffeine local cache만 사용한다.
 - Amazon SQS
   - 현재는 포트와 기본 로깅/No-op 어댑터만 제공한다.
   - 실제 AWS SDK 연동은 별도 어댑터로 추가한다.
@@ -63,8 +65,8 @@
 
 - Management Server: `8080`
 - Redirect Server: `8081`
-- Management cache: in-memory
-- Redirect cache: Valkey
+- Management cache: Caffeine local cache
+- Redirect cache: Caffeine local cache + Valkey
 - Database URL: `jdbc:postgresql://localhost:5432/short_url`
 - JPA DDL: `validate`
 - Flyway: enabled, `classpath:db/migration`
@@ -117,12 +119,16 @@ port: 6379
 protocol: Redis-compatible
 ```
 
-애플리케이션에서 실제 Valkey 캐시를 쓰려면 `short-url.cache.redis.enabled=true`를 설정한다. 기본값은 로컬 테스트 편의를 위해 in-memory cache다.
+애플리케이션에서 실제 Valkey remote cache를 쓰려면 `short-url.cache.redis.enabled=true`를 설정한다. Redis를 비활성화하면 Caffeine local cache만 사용한다. Management Server도 생성 성공 시 redirect negative cache를 evict할 수 있도록 Valkey에 연결한다.
 
 Redirect Server는 로컬 기본 설정에서 Valkey 캐시를 사용한다.
 
 ```properties
 short-url.cache.redis.enabled=true
+short-url.cache.local.maximum-size=100000
+short-url.cache.stampede.lock-ttl=3s
+short-url.cache.stampede.wait-timeout=500ms
+short-url.cache.stampede.poll-interval=20ms
 spring.data.redis.host=localhost
 spring.data.redis.port=6379
 ```

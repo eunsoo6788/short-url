@@ -16,6 +16,18 @@ interface ShortLinkCache {
     fun evict(code: ShortCode)
 }
 
+object NoOpShortLinkCache : ShortLinkCache {
+    override fun getRedirect(code: ShortCode): RedirectCacheEntry? = null
+
+    override fun putFound(code: ShortCode, originalUrl: OriginalUrl, ttl: Duration) = Unit
+
+    override fun putNotFound(code: ShortCode, ttl: Duration) = Unit
+
+    override fun putGone(code: ShortCode, ttl: Duration) = Unit
+
+    override fun evict(code: ShortCode) = Unit
+}
+
 sealed interface RedirectCacheEntry {
     data class Found(val originalUrl: OriginalUrl) : RedirectCacheEntry
 

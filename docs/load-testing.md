@@ -32,6 +32,8 @@ REDIRECT_BASE_URL=http://host.docker.internal:8081
 | `load-tests/k6/short-url-smoke.js` | Short URL 생성 1회와 redirect 1회를 검증 |
 | `load-tests/k6/redirect-load.js` | 사전 생성한 short code를 대상으로 redirect read path 부하 테스트 |
 | `load-tests/k6/mixed-load.js` | 생성 API와 redirect API를 섞은 read-heavy 부하 테스트 |
+| `load-tests/k6/cache-stress.js` | cold hot key, sustained hot key, spread key로 cache stampede/hot key 방어 스트레스 테스트 |
+| `load-tests/k6/cache-miss-stress.js` | 존재하지 않는 code의 negative cache, hot missing key, 랜덤 scan 스트레스 테스트 |
 
 ## Smoke Test
 
@@ -89,6 +91,65 @@ docker compose run --rm \
   k6 run /scripts/mixed-load.js
 ```
 
+## Cache Stress Test
+
+캐시 방어 전략을 검증하기 위한 스트레스 테스트다.
+
+- `cold_hot_key_burst`: 한 번도 redirect 하지 않은 hot code에 VU를 순간적으로 몰아 cold cache stampede를 만든다.
+- `sustained_hot_key`: 같은 hot code를 높은 arrival rate로 계속 호출해 local cache가 Redis/DB 부하를 흡수하는지 본다.
+- `spread_key_stress`: 여러 code를 분산 호출해 일반 redirect read path의 p95/p99와 오류율을 같이 본다.
+
+로컬 기본값은 보수적으로 잡혀 있다.
+
+```bash
+docker compose run --rm k6 run /scripts/cache-stress.js
+```
+
+강도를 높일 때:
+
+```bash
+docker compose run --rm \
+  -e COLD_BURST_VUS=300 \
+  -e COLD_BURST_DURATION=20s \
+  -e HOT_RATE=3000 \
+  -e HOT_DURATION=2m \
+  -e HOT_PRE_ALLOCATED_VUS=500 \
+  -e HOT_MAX_VUS=2000 \
+  -e SPREAD_CODE_COUNT=1000 \
+  -e SPREAD_RATE=1000 \
+  -e SPREAD_DURATION=2m \
+  k6 run /scripts/cache-stress.js
+```
+
+## Cache Miss Stress Test
+
+없는 code가 반복 호출될 때 PostgreSQL까지 계속 내려가지 않도록 negative cache가 동작하는지 검증한다.
+
+- `cold_missing_hot_key_burst`: 한 번도 조회하지 않은 같은 missing code에 VU를 순간적으로 몰아 negative cache stampede를 만든다.
+- `sustained_missing_hot_key`: 같은 missing code를 높은 arrival rate로 계속 호출해 404 negative cache가 Redis/DB 부하를 흡수하는지 본다.
+- `spread_missing_key_stress`: 여러 missing code를 반복 호출해 missing set이 cache에 올라간 뒤 p95/p99가 안정되는지 본다.
+- `unique_missing_key_scan`: 매 요청마다 새로운 missing code를 호출한다. negative cache로 줄일 수 없는 랜덤 scan의 DB pressure 기준선을 확인한다.
+
+```bash
+docker compose run --rm k6 run /scripts/cache-miss-stress.js
+```
+
+강도를 높일 때:
+
+```bash
+docker compose run --rm \
+  -e MISS_COLD_BURST_VUS=300 \
+  -e MISS_COLD_BURST_DURATION=20s \
+  -e MISS_HOT_RATE=3000 \
+  -e MISS_HOT_DURATION=2m \
+  -e MISSING_CODE_COUNT=1000 \
+  -e MISS_SPREAD_RATE=1000 \
+  -e MISS_SPREAD_DURATION=2m \
+  -e MISS_UNIQUE_SCAN_RATE=500 \
+  -e MISS_UNIQUE_SCAN_DURATION=2m \
+  k6 run /scripts/cache-miss-stress.js
+```
+
 ## 환경변수
 
 | Name | Default | 설명 |
@@ -100,6 +161,32 @@ docker compose run --rm \
 | `SHORT_URL_COUNT` | `100` | setup 단계에서 만들 short URL 수 |
 | `CREATE_RATIO` | `0.05` | mixed-load에서 생성 요청 비율 |
 | `SLEEP_SECONDS` | `0` | VU iteration 사이 sleep |
+| `SPREAD_CODE_COUNT` | `200` | cache-stress에서 분산 호출할 short URL 수 |
+| `COLD_BURST_VUS` | `100` | cache-stress cold hot key burst VU 수 |
+| `COLD_BURST_DURATION` | `20s` | cache-stress cold hot key burst 지속 시간 |
+| `HOT_RATE` | `1000` | cache-stress sustained hot key 초당 요청 수 |
+| `HOT_DURATION` | `1m` | cache-stress sustained hot key 지속 시간 |
+| `HOT_PRE_ALLOCATED_VUS` | `200` | cache-stress hot key pre-allocated VU 수 |
+| `HOT_MAX_VUS` | `1000` | cache-stress hot key max VU 수 |
+| `SPREAD_RATE` | `500` | cache-stress spread key 초당 요청 수 |
+| `SPREAD_DURATION` | `1m` | cache-stress spread key 지속 시간 |
+| `SPREAD_PRE_ALLOCATED_VUS` | `100` | cache-stress spread key pre-allocated VU 수 |
+| `SPREAD_MAX_VUS` | `500` | cache-stress spread key max VU 수 |
+| `MISSING_CODE_COUNT` | `200` | cache-miss-stress에서 반복 호출할 missing code 수 |
+| `MISS_COLD_BURST_VUS` | `100` | cache-miss-stress cold missing hot key burst VU 수 |
+| `MISS_COLD_BURST_DURATION` | `20s` | cache-miss-stress cold missing hot key burst 지속 시간 |
+| `MISS_HOT_RATE` | `1000` | cache-miss-stress sustained missing hot key 초당 요청 수 |
+| `MISS_HOT_DURATION` | `1m` | cache-miss-stress sustained missing hot key 지속 시간 |
+| `MISS_HOT_PRE_ALLOCATED_VUS` | `200` | cache-miss-stress hot missing key pre-allocated VU 수 |
+| `MISS_HOT_MAX_VUS` | `1000` | cache-miss-stress hot missing key max VU 수 |
+| `MISS_SPREAD_RATE` | `500` | cache-miss-stress spread missing key 초당 요청 수 |
+| `MISS_SPREAD_DURATION` | `1m` | cache-miss-stress spread missing key 지속 시간 |
+| `MISS_SPREAD_PRE_ALLOCATED_VUS` | `100` | cache-miss-stress spread missing key pre-allocated VU 수 |
+| `MISS_SPREAD_MAX_VUS` | `500` | cache-miss-stress spread missing key max VU 수 |
+| `MISS_UNIQUE_SCAN_RATE` | `200` | cache-miss-stress unique missing key scan 초당 요청 수 |
+| `MISS_UNIQUE_SCAN_DURATION` | `1m` | cache-miss-stress unique missing key scan 지속 시간 |
+| `MISS_UNIQUE_SCAN_PRE_ALLOCATED_VUS` | `100` | cache-miss-stress unique scan pre-allocated VU 수 |
+| `MISS_UNIQUE_SCAN_MAX_VUS` | `500` | cache-miss-stress unique scan max VU 수 |
 
 ## 기본 Threshold
 
