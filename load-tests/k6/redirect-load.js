@@ -45,6 +45,7 @@ export default function (data) {
       'X-Request-Id': `k6-redirect-${exec.vu.idInTest}-${exec.scenario.iterationInTest}`,
     },
     tags: {
+      name: '/:code',
       endpoint: 'redirect_short_url',
     },
   });
@@ -77,6 +78,7 @@ function createShortUrl(runId, index) {
         'X-Request-Id': `k6-setup-${runId}-${index}`,
       },
       tags: {
+        name: '/api/v1/short-links',
         endpoint: 'setup_create_short_url',
       },
     },

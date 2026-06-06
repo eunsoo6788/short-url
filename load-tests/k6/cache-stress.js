@@ -114,6 +114,7 @@ function createShortUrl(runId, suffix) {
         'X-Request-Id': `k6-cache-stress-setup-${runId}-${suffix}`,
       },
       tags: {
+        name: '/api/v1/short-links',
         endpoint: 'setup_create_short_url',
       },
     },
@@ -138,6 +139,7 @@ function redirect(code, scenarioType) {
       'X-Request-Id': `k6-cache-stress-${scenarioType}-${exec.vu.idInTest}-${exec.scenario.iterationInTest}`,
     },
     tags: {
+      name: '/:code',
       endpoint: 'redirect_short_url',
       scenario_type: scenarioType,
     },

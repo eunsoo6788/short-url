@@ -11,7 +11,11 @@ import toy.two.shorturl.shortlink.application.port.ShortLinkCache
 import java.time.Clock
 
 @Configuration
-@EnableConfigurationProperties(LocalCacheProperties::class, CacheStampedeProperties::class)
+@EnableConfigurationProperties(
+    LocalCacheProperties::class,
+    CacheStampedeProperties::class,
+    RedisReplicationProperties::class,
+)
 class ShortLinkCacheConfiguration {
     @Bean
     @ConditionalOnProperty(prefix = "short-url.cache.redis", name = ["enabled"], havingValue = "true")

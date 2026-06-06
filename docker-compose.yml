@@ -10,6 +10,64 @@ services:
       POSTGRES_PASSWORD: short_url
     volumes:
       - short-url-postgres-data:/var/lib/postgresql/data
+      - ./postgres/pg_hba.conf:/etc/postgresql/pg_hba.conf:ro
+    command:
+      - "postgres"
+      - "-c"
+      - "wal_level=replica"
+      - "-c"
+      - "max_wal_senders=10"
+      - "-c"
+      - "max_replication_slots=10"
+      - "-c"
+      - "hot_standby=on"
+      - "-c"
+      - "hba_file=/etc/postgresql/pg_hba.conf"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U short_url -d short_url"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  postgres-replication-setup:
+    image: postgres:17-alpine
+    container_name: short-url-postgres-replication-setup
+    environment:
+      PGPASSWORD: short_url
+    volumes:
+      - ./postgres/setup-replication.sh:/setup-replication.sh:ro
+    command:
+      - "sh"
+      - "/setup-replication.sh"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  postgres-replica:
+    image: postgres:17-alpine
+    container_name: short-url-postgres-replica
+    ports:
+      - "5433:5432"
+    environment:
+      PGDATA: /var/lib/postgresql/data
+    volumes:
+      - short-url-postgres-replica-data:/var/lib/postgresql/data
+    command:
+      - "sh"
+      - "-c"
+      - |
+        if [ ! -s "$$PGDATA/PG_VERSION" ]; then
+          rm -rf "$$PGDATA"/*
+          until pg_isready -h postgres -p 5432 -U short_url -d short_url; do
+            sleep 1
+          done
+          pg_basebackup -d "host=postgres port=5432 user=replicator password=replicator dbname=short_url" -D "$$PGDATA" -Fp -Xs -P -R
+        fi
+        exec docker-entrypoint.sh postgres
+    depends_on:
+      postgres-replication-setup:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U short_url -d short_url"]
       interval: 10s
@@ -22,6 +80,10 @@ services:
     container_name: short-url-valkey
     ports:
       - "6379:6379"
+    command:
+      - "valkey-server"
+      - "--appendonly"
+      - "yes"
     volumes:
       - short-url-valkey-data:/data
     healthcheck:
@@ -30,6 +92,65 @@ services:
       timeout: 5s
       retries: 5
       start_period: 5s
+
+  valkey-replica-1:
+    image: valkey/valkey:8-alpine
+    container_name: short-url-valkey-replica-1
+    ports:
+      - "6380:6379"
+    command:
+      - "valkey-server"
+      - "--replicaof"
+      - "valkey"
+      - "6379"
+      - "--appendonly"
+      - "yes"
+    volumes:
+      - short-url-valkey-replica-1-data:/data
+    depends_on:
+      valkey:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
+  valkey-replica-2:
+    image: valkey/valkey:8-alpine
+    container_name: short-url-valkey-replica-2
+    ports:
+      - "6381:6379"
+    command:
+      - "valkey-server"
+      - "--replicaof"
+      - "valkey"
+      - "6379"
+      - "--appendonly"
+      - "yes"
+    volumes:
+      - short-url-valkey-replica-2-data:/data
+    depends_on:
+      valkey:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
+  nginx-cache:
+    image: nginx:1.27-alpine
+    container_name: short-url-nginx-cache
+    ports:
+      - "8088:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - short-url-nginx-cache-data:/var/cache/nginx
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
   prometheus:
     image: prom/prometheus:v2.55.1
@@ -104,7 +225,11 @@ services:
 
 volumes:
   short-url-postgres-data:
+  short-url-postgres-replica-data:
   short-url-valkey-data:
+  short-url-valkey-replica-1-data:
+  short-url-valkey-replica-2-data:
   short-url-prometheus-data:
   short-url-loki-data:
   short-url-grafana-data:
+  short-url-nginx-cache-data:

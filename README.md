@@ -19,10 +19,13 @@ Gradle은 wrapper를 사용한다.
 
 ### 2. 로컬 인프라 실행
 
-PostgreSQL, Valkey, Prometheus, Loki, Promtail, Grafana를 Docker Compose로 실행한다.
+PostgreSQL primary/replica, Valkey master/replicas, Prometheus, Loki, Promtail, Grafana를 Docker Compose로 실행한다.
 
 ```bash
-docker compose up -d postgres valkey prometheus loki promtail grafana
+docker compose up -d \
+  postgres postgres-replication-setup postgres-replica \
+  valkey valkey-replica-1 valkey-replica-2 \
+  prometheus loki promtail grafana
 docker compose ps
 ```
 
@@ -145,8 +148,10 @@ docker compose run --rm \
 | Management API | http://localhost:8080 | Short URL 생성/조회 |
 | Redirect API | http://localhost:8081 | Short code redirect |
 | Worker Actuator | http://localhost:8082/actuator/health | Worker 상태 확인 |
-| PostgreSQL | `localhost:5432`, DB/user/password: `short_url` | Short URL 저장소 |
-| Valkey | `localhost:6379` | Redirect cache |
+| PostgreSQL primary | `localhost:5432`, DB/user/password: `short_url` | Short URL 저장소 write |
+| PostgreSQL replica | `localhost:5433`, DB/user/password: `short_url` | Short URL 저장소 read |
+| Valkey master | `localhost:6379` | Redirect cache write |
+| Valkey replicas | `localhost:6380`, `localhost:6381` | Redirect cache read |
 | Prometheus | http://localhost:9090 | Metrics 조회 |
 | Prometheus Targets | http://localhost:9090/targets | Scrape target 상태 확인 |
 | Grafana | http://localhost:3000, `admin/admin` | Dashboard |
@@ -162,12 +167,14 @@ PostgreSQL 접속 확인:
 
 ```bash
 docker compose exec -T postgres psql -U short_url -d short_url -c "select current_database(), current_user;"
+docker compose exec -T postgres-replica psql -U short_url -d short_url -c "select pg_is_in_recovery();"
 ```
 
 Valkey 접속 확인:
 
 ```bash
 docker compose exec -T valkey valkey-cli ping
+docker compose exec -T valkey-replica-1 valkey-cli info replication
 ```
 
 Loki 로그 조회 예시:
@@ -368,7 +375,7 @@ REDIRECT_BASE_URL=http://host.docker.internal:8081
 
 ```bash
 # 인프라 실행
-docker compose up -d postgres valkey prometheus loki promtail grafana
+docker compose up -d postgres postgres-replication-setup postgres-replica valkey valkey-replica-1 valkey-replica-2 prometheus loki promtail grafana
 
 # 인프라 상태 확인
 docker compose ps

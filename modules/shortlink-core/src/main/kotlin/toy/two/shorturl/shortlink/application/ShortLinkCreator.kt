@@ -26,6 +26,7 @@ class ShortLinkCreator(
 ) {
     fun create(command: CreateShortLinkCommand): ShortLink {
         val now = clock.instant()
+        val originalUrl = OriginalUrl.from(command.originalUrl)
         val code = command.customCode
             ?.takeIf { it.isNotBlank() }
             ?.let { ShortCode.from(it) }
@@ -38,7 +39,7 @@ class ShortLinkCreator(
         val shortLink = repository.save(
             ShortLink(
                 code = code,
-                originalUrl = OriginalUrl.from(command.originalUrl),
+                originalUrl = originalUrl,
                 createdAt = now,
                 expiresAt = command.expiresAt,
             ),

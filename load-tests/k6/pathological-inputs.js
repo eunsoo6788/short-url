@@ -3,7 +3,7 @@ import { check, fail, sleep } from 'k6';
 import exec from 'k6/execution';
 import { Counter } from 'k6/metrics';
 
-http.setResponseCallback(http.expectedStatuses({ min: 200, max: 399 }, 400, 409, 413));
+http.setResponseCallback(http.expectedStatuses({ min: 200, max: 399 }, 400, 409, 413, 414));
 
 const managementBaseUrl = __ENV.MANAGEMENT_BASE_URL || 'http://host.docker.internal:8080';
 const redirectBaseUrl = __ENV.REDIRECT_BASE_URL || 'http://host.docker.internal:8081';
@@ -16,6 +16,7 @@ const invalidCreateDuration = __ENV.PATHOLOGICAL_INVALID_CREATE_DURATION || '30s
 const duplicateCreateRate = Number(__ENV.PATHOLOGICAL_DUPLICATE_CREATE_RATE || 20);
 const duplicateCreateDuration = __ENV.PATHOLOGICAL_DUPLICATE_CREATE_DURATION || '30s';
 const sleepSeconds = Number(__ENV.SLEEP_SECONDS || 0);
+const httpTimeout = __ENV.HTTP_TIMEOUT || '2s';
 
 const statusFailures = new Counter('short_url_pathological_status_failures');
 
@@ -107,7 +108,9 @@ export function longQueryRedirect(data) {
     headers: {
       'X-Request-Id': data.longTraceId,
     },
+    timeout: httpTimeout,
     tags: {
+      name: '/:code?long-query',
       endpoint: 'pathological_long_query_redirect',
       scenario_type: 'long_query_redirect',
     },
@@ -115,8 +118,8 @@ export function longQueryRedirect(data) {
 
   recordCheck(
     response,
-    'long query redirect is still 302',
-    (res) => res.status === 302 && Boolean(res.headers.Location),
+    'long query redirect is 302 or rejected fast as 414',
+    (res) => (res.status === 302 && Boolean(res.headers.Location)) || res.status === 414,
     'long_query_redirect',
   );
   maybeSleep();
@@ -133,7 +136,9 @@ export function invalidCreatePayload(data) {
         'Content-Type': 'application/json',
         'X-Request-Id': `k6-pathological-invalid-${exec.vu.idInTest}-${exec.scenario.iterationInTest}`,
       },
+      timeout: httpTimeout,
       tags: {
+        name: '/api/v1/short-links',
         endpoint: 'pathological_invalid_create',
         scenario_type: 'invalid_create_payloads',
       },
@@ -161,7 +166,9 @@ export function duplicateCustomCodeRace(data) {
         'Content-Type': 'application/json',
         'X-Request-Id': `k6-pathological-dupe-${exec.vu.idInTest}-${exec.scenario.iterationInTest}`,
       },
+      timeout: httpTimeout,
       tags: {
+        name: '/api/v1/short-links',
         endpoint: 'pathological_duplicate_create',
         scenario_type: 'duplicate_custom_code_race',
       },
@@ -194,7 +201,9 @@ function createShortUrl(runId, customCode = null) {
         'Content-Type': 'application/json',
         'X-Request-Id': `k6-pathological-setup-${runId}-${customCode || 'warm'}`,
       },
+      timeout: httpTimeout,
       tags: {
+        name: '/api/v1/short-links',
         endpoint: 'pathological_setup_create',
       },
     },

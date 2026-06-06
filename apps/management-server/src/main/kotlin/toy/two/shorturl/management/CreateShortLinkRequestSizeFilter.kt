@@ -21,7 +21,7 @@ class CreateShortLinkRequestSizeFilter(
 ) : OncePerRequestFilter() {
     init {
         require(maxBodyBytes > 0) { "maxBodyBytes must be greater than 0" }
-        require(maxDrainBodyBytes >= maxBodyBytes) { "maxDrainBodyBytes must be greater than or equal to maxBodyBytes" }
+        require(maxDrainBodyBytes >= 0) { "maxDrainBodyBytes must be greater than or equal to 0" }
     }
 
     override fun shouldNotFilter(request: HttpServletRequest): Boolean =
@@ -33,7 +33,8 @@ class CreateShortLinkRequestSizeFilter(
         filterChain: FilterChain,
     ) {
         if (request.contentLengthLong > maxBodyBytes) {
-            val closeConnection = request.contentLengthLong > maxDrainBodyBytes || !drain(request, request.contentLengthLong)
+            val shouldDrain = maxDrainBodyBytes > 0 && request.contentLengthLong <= maxDrainBodyBytes
+            val closeConnection = !shouldDrain || !drain(request, request.contentLengthLong)
             reject(response, closeConnection)
             return
         }

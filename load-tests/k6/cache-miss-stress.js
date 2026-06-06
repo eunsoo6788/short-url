@@ -134,6 +134,7 @@ function redirectMissing(code, scenarioType) {
       'X-Request-Id': `k6-cache-miss-${scenarioType}-${exec.vu.idInTest}-${exec.scenario.iterationInTest}`,
     },
     tags: {
+      name: '/:missingCode',
       endpoint: 'redirect_missing_short_url',
       scenario_type: scenarioType,
     },

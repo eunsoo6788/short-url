@@ -13,6 +13,7 @@ import toy.two.shorturl.shortlink.domain.OriginalUrl
 import toy.two.shorturl.shortlink.domain.ShortCode
 import toy.two.shorturl.shortlink.domain.ShortLink
 import toy.two.shorturl.shortlink.domain.exception.ExpiredShortLinkException
+import toy.two.shorturl.shortlink.domain.exception.InvalidOriginalUrlException
 import toy.two.shorturl.shortlink.domain.exception.ShortCodeAlreadyExistsException
 import toy.two.shorturl.shortlink.domain.exception.ShortLinkNotFoundException
 import java.time.Clock
@@ -85,6 +86,20 @@ class ShortLinkCreatorTest {
 
         assertEquals(null, cache.getRedirect(code))
         assertEquals(listOf("new1"), cache.evictedCodes)
+    }
+
+    @Test
+    fun `originalUrl이 유효하지 않으면 코드 생성과 DB 조회 전에 거절한다`() {
+        val repository = InMemoryShortLinkRepository()
+        val generator = SequenceShortCodeGenerator("abcd")
+        val creator = ShortLinkCreator(repository, generator, clock)
+
+        assertFailsWith<InvalidOriginalUrlException> {
+            creator.create(CreateShortLinkCommand("https://example.com/${"x".repeat(4096)}"))
+        }
+
+        assertEquals(emptyList(), generator.generatedCodes)
+        assertEquals(0, repository.existsByCodeCount)
     }
 }
 
@@ -265,6 +280,7 @@ private class SequenceShortCodeGenerator(vararg codes: String) : ShortCodeGenera
 private class InMemoryShortLinkRepository : ShortLinkRepository {
     private val store = linkedMapOf<String, ShortLink>()
     var findByCodeCount = 0
+    var existsByCodeCount = 0
 
     override fun save(shortLink: ShortLink): ShortLink {
         store[shortLink.code.value] = shortLink
@@ -276,7 +292,10 @@ private class InMemoryShortLinkRepository : ShortLinkRepository {
         return store[code.value]
     }
 
-    override fun existsByCode(code: ShortCode): Boolean = store.containsKey(code.value)
+    override fun existsByCode(code: ShortCode): Boolean {
+        existsByCodeCount += 1
+        return store.containsKey(code.value)
+    }
 
     override fun findRecent(limit: Int): List<ShortLink> =
         store.values.sortedByDescending { it.createdAt }.take(limit)

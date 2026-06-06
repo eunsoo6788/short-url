@@ -35,6 +35,8 @@ Worker Server: 8082
 
 API 로그가 보이려면 Management Server나 Redirect Server에서 실제 API 요청이 발생해야 한다. Actuator 요청은 Prometheus scrape 노이즈를 줄이기 위해 access log에서 제외한다.
 
+Access log writer는 기본 로컬 실행에서 bounded async queue를 사용한다. 요청 thread는 로그 라인을 큐에 넣고 바로 반환하며, 별도 daemon worker가 파일에 flush한다. 큐가 가득 차면 처리량 보호를 우선해 초과 로그 라인을 drop할 수 있으므로, 운영에서는 로그 유실 허용 범위와 drop count 관측을 함께 둔다.
+
 ## 수집 지표
 
 - JVM 메모리와 thread

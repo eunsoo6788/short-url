@@ -69,6 +69,7 @@ function createShortUrl(runId, suffix, endpoint) {
         'X-Request-Id': `k6-${endpoint}-${runId}-${suffix}`,
       },
       tags: {
+        name: '/api/v1/short-links',
         endpoint,
       },
     },
@@ -99,6 +100,7 @@ function redirect(code) {
       'X-Request-Id': `k6-mixed-redirect-${exec.vu.idInTest}-${exec.scenario.iterationInTest}`,
     },
     tags: {
+      name: '/:code',
       endpoint: 'redirect_short_url',
     },
   });

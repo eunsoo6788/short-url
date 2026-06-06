@@ -9,6 +9,25 @@ import kotlin.test.assertFalse
 
 class CreateShortLinkRequestSizeFilterTest {
     @Test
+    fun `drain 한도가 0이면 큰 create 요청은 즉시 연결을 닫고 413으로 거절한다`() {
+        val filter = CreateShortLinkRequestSizeFilter(maxBodyBytes = 16, maxDrainBodyBytes = 0)
+        val request = MockHttpServletRequest("POST", "/api/v1/short-links").apply {
+            setContent(ByteArray(32) { 'a'.code.toByte() })
+        }
+        val response = MockHttpServletResponse()
+        var chainInvoked = false
+
+        filter.doFilter(request, response) { _, _ ->
+            chainInvoked = true
+        }
+
+        assertEquals(413, response.status)
+        assertEquals("close", response.getHeader("Connection"))
+        assertContains(response.contentAsString, "PAYLOAD_TOO_LARGE")
+        assertFalse(chainInvoked)
+    }
+
+    @Test
     fun `create 요청 본문이 제한보다 조금 크면 drain 후 413으로 거절한다`() {
         val filter = CreateShortLinkRequestSizeFilter(maxBodyBytes = 16, maxDrainBodyBytes = 32)
         val request = MockHttpServletRequest("POST", "/api/v1/short-links").apply {

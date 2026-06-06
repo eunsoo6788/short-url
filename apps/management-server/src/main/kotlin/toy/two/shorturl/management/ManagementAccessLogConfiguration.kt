@@ -17,8 +17,11 @@ class ManagementAccessLogConfiguration {
     fun apiAccessLogJsonWriter(
         objectMapper: ObjectMapper,
         @Value("\${short-url.access-log.path}") path: String,
+        @Value("\${short-url.access-log.flush-every-lines:1}") flushEveryLines: Int,
+        @Value("\${short-url.access-log.async-enabled:false}") asyncEnabled: Boolean,
+        @Value("\${short-url.access-log.queue-capacity:8192}") queueCapacity: Int,
     ): ApiAccessLogJsonWriter =
-        ApiAccessLogJsonWriter(objectMapper, Path.of(path))
+        ApiAccessLogJsonWriter(objectMapper, Path.of(path), flushEveryLines, asyncEnabled, queueCapacity)
 
     @Bean
     fun mvcApiAccessLoggingFilter(

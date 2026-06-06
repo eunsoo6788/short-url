@@ -25,6 +25,7 @@ export default function () {
         'X-Request-Id': `k6-smoke-${Date.now()}`,
       },
       tags: {
+        name: '/api/v1/short-links',
         endpoint: 'create_short_url',
       },
     },
@@ -46,6 +47,7 @@ export default function () {
       'X-Request-Id': `k6-smoke-redirect-${code}`,
     },
     tags: {
+      name: '/:code',
       endpoint: 'redirect_short_url',
     },
   });
